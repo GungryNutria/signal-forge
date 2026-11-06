@@ -42,5 +42,7 @@ export default defineConfig({
     iniciar(PUERTOS.fallaInvestigaciones, { SF_FALLA_INYECTADA: "ultimasInvestigaciones" }),
     iniciar(PUERTOS.fallaPropuestas, { SF_FALLA_INYECTADA: "listarPropuestas" }),
     iniciar(PUERTOS.fallaCartera, { SF_FALLA_INYECTADA: "resumenCartera" }),
+    iniciar(PUERTOS.fallaMetricas, { SF_FALLA_INYECTADA: "metricas" }),
+    iniciar(PUERTOS.fallaEjecuciones, { SF_FALLA_INYECTADA: "listarEjecuciones" }),
   ],
 });

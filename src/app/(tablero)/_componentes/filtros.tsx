@@ -103,7 +103,7 @@ export function Paginacion({
   mostrando: number;
   total: number;
 }) {
-  const clase = "inline-flex min-h-11 items-center justify-center rounded-sm border px-4 text-sm font-semibold";
+  const clase = "inline-flex min-h-11 items-center justify-center rounded-sm border px-3 text-sm font-semibold whitespace-nowrap md:px-4";
   const ir = (cursor: string) => `${base}${consulta({ ...valores, cursor })}`;
   return (
     <nav aria-label="Paginación" className="mt-4 flex items-center justify-between gap-3">

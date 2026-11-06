@@ -11,6 +11,8 @@ export const PUERTOS = {
   fallaInvestigaciones: 3195,
   fallaPropuestas: 3196,
   fallaCartera: 3197,
+  fallaMetricas: 3198,
+  fallaEjecuciones: 3199,
 } as const;
 
 export const BASE = process.env.E2E_DATABASE_URL;
@@ -62,4 +64,35 @@ export async function capturar(page: import("@playwright/test").Page, ancho: num
   const carpeta = process.env.CAPTURAS;
   if (!carpeta || ancho === 360) return;
   await page.screenshot({ path: `${carpeta}/${nombre}_${ancho}.png`, fullPage: true });
+}
+
+/**
+ * AC-UX-8 y AC-UX-31: con la red limitada ("3G lento"), mientras hay marcadores de carga ningún bloque muestra cifras.
+ * Devuelve cuántas veces se vio un marcador (debe ser al menos una).
+ */
+export async function vigilarCarga(page: import("@playwright/test").Page, context: import("@playwright/test").BrowserContext, ruta: string) {
+  const cdp = await context.newCDPSession(page);
+  await cdp.send("Network.enable");
+  await cdp.send("Network.emulateNetworkConditions", { offline: false, latency: 400, downloadThroughput: (400 * 1024) / 8, uploadThroughput: (400 * 1024) / 8 });
+  const dinero = /\d[\d,]*\.\d{2}\s*USD|\d\s*%|\b0\.00\b/;
+  const textosConDato: string[] = [];
+  let visto = 0;
+  const navegacion = page.goto(ruta, { waitUntil: "commit" });
+  const fin = Date.now() + 20_000;
+  while (Date.now() < fin) {
+    const l = await page
+      .evaluate(() => ({
+        esqueletos: document.querySelectorAll("[data-cargando]").length,
+        textos: [...document.querySelectorAll("[aria-busy='true']")].map((e) => (e as HTMLElement).innerText),
+      }))
+      .catch(() => null);
+    if (l && l.esqueletos > 0) {
+      visto++;
+      for (const t of l.textos) if (dinero.test(t)) textosConDato.push(t);
+    }
+    if (l && l.esqueletos === 0 && visto > 0) break;
+    await page.waitForTimeout(100);
+  }
+  await navegacion;
+  return { visto, textosConDato };
 }

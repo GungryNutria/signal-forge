@@ -8,7 +8,11 @@ import { Tarjeta, TituloBloque } from "./tarjeta";
 // en `pos` y "Incumple" en neutro con círculo vacío: no cumplir es el resultado normal ("Neutral es normal").
 export type ResultadoRegla = { senal: boolean; closeUltimo: number; closePrevio: number; sma20: number };
 
-const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
+// La justificación de una propuesta trae números; la foto de una evaluación los trae como texto decimal.
+const num = (v: unknown): number | null => {
+  const n = typeof v === "number" ? v : typeof v === "string" && v.trim() !== "" ? Number(v) : NaN;
+  return Number.isFinite(n) ? n : null;
+};
 
 /** `{ senal, close_ultimo, close_previo, sma20 }` tal como lo guarda el motor; `null` si falta algo. */
 export function leerResultado(x: unknown): ResultadoRegla | null {

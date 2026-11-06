@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { BASE, CREDENCIALES, MEDIDAS, SIN_BASE, sembrar } from "./ayuda";
 
 // AC-21 (S2 y S3): el tablero muestra lo sembrado y solo lee. AC-UX-14 y AC-UX-21 en esas dos superficies.
-// T-16 agrega aquí la parte de S4 y S5.
+// La parte de S4 y S5 (T-16) cierra el archivo.
 test.skip(!BASE, SIN_BASE);
 test.use({ httpCredentials: CREDENCIALES });
 
@@ -51,3 +51,33 @@ for (const m of MEDIDAS) {
     });
   });
 }
+
+for (const m of MEDIDAS) {
+  test.describe(`S4 y S5 a ${m.ancho}×${m.alto}`, () => {
+    test.use({ viewport: { width: m.ancho, height: m.alto } });
+
+    test("AC-21: S4 muestra las métricas sembradas y S5 las ejecuciones sembradas", async ({ page }) => {
+      sembrar("metricas-conocidas");
+      await page.goto("/metricas");
+      await expect(page.getByRole("heading", { name: "Curva de saldo" })).toBeVisible();
+      await expect(page.getByText("+2.40 USD").first()).toBeVisible();
+      sembrar("ejecuciones-por-caso");
+      await page.goto("/ejecuciones");
+      await expect(page.getByText("5 resultados")).toBeVisible();
+    });
+
+    test("AC-UX-21: S4 y S5 solo tienen navegación, filtros y enlaces", async ({ page }) => {
+      const prohibidos = /pausar|cerrar posición|reintentar|ejecutar ciclo|pedir investigación/i;
+      sembrar("ejecuciones-por-caso");
+      for (const ruta of ["/metricas", "/ejecuciones"]) {
+        await page.goto(ruta);
+        await page.locator("main form:visible").first().waitFor();
+        for (const b of await page.locator("main").getByRole("button").all()) expect((await b.innerText()).trim()).not.toMatch(prohibidos);
+        const metodos = await page.locator("main form:visible").evaluateAll((fs) => fs.map((f) => (f as HTMLFormElement).method));
+        expect(metodos.length).toBeGreaterThan(0);
+        expect(new Set(metodos)).toEqual(new Set(["get"]));
+      }
+    });
+  });
+}
+
