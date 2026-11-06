@@ -138,6 +138,9 @@ jobs:
         env:
           PORT: "3000"
           BASE_URL: http://localhost:3000
+          # Sin esta variable las specs de UI se saltan. El nombre de la base debe contener "test" o "e2e":
+          # `scripts/sembrar.ts --reiniciar` la recrea en cada test.
+          E2E_DATABASE_URL: postgres://sf:sf@localhost:5432/signalforge_test
         run: |
           npm start > next.log 2>&1 &
           for i in $(seq 1 60); do
