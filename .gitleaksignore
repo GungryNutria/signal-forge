@@ -1,2 +1,4 @@
 # Falso positivo: valor senuelo en un test (commit 7fd04a6). El historial no se reescribe.
 7fd04a6db47fa5842bd766302d3cc9c4d4512373:src/server/broker/alpaca.test.ts:generic-api-key:5
+# Prueba de gitleaks (T-18): patron falso, ya revertido; el historial no se reescribe.
+e72f8f39bbb7f39b7a2087c7eef95c740b87f50a:prueba-gitleaks.ts:github-pat:1
