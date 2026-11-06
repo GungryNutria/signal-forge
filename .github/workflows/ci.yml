@@ -70,6 +70,8 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      # rutas-token.test.ts levanta `next start` y necesita .next/ (desviación 6 de T-8).
+      - run: npm run build
       - run: npm run test:integracion
 
   gitleaks:
