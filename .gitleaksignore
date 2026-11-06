@@ -1,0 +1,2 @@
+# Falso positivo: valor senuelo en un test (commit 7fd04a6). El historial no se reescribe.
+7fd04a6db47fa5842bd766302d3cc9c4d4512373:src/server/broker/alpaca.test.ts:generic-api-key:5
