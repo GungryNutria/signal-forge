@@ -19,9 +19,9 @@ import {
   ejecucionesCierre,
   evaluaciones,
   eventos,
-  lecturasMercado,
 } from "@/server/db/esquema";
 import { cargarEnv, type Env } from "@/server/env";
+import { guardarLectura } from "@/server/lecturas";
 import { carteraParaFoto, investigacionVigente } from "@/server/foto";
 import { procesarPropuesta, URL_PAPER, type CtxPropuesta } from "@/server/propuestas/procesar";
 
@@ -205,28 +205,14 @@ async function correr(
   return { ejecucionId, estado, evaluaciones: hechos };
 }
 
-/** Upsert de `lecturas_mercado`: el precio leído, o solo el error si la lectura falló (AC-6). */
+/** Guarda en `lecturas_mercado` el precio leído y, si algo falló, el error (AC-6). */
 async function registrarLecturas(db: NodePgDatabase, m: Mercado, t: Date, limpiar: (t: string) => string) {
   for (const activo of ACTIVOS) {
     const b = m.barras[activo];
     const falla = esFallo(m.snapshots) ? m.snapshots : esFallo(b) ? b : null;
     const s = esFallo(m.snapshots) ? undefined : m.snapshots[activo];
-    if (s) {
-      await db
-        .insert(lecturasMercado)
-        .values({ activo, bid: String(s.bid), ask: String(s.ask), ultimo: String(s.ultimo), fuenteTs: s.tsQuote, leidoEn: t })
-        .onConflictDoUpdate({
-          target: lecturasMercado.activo,
-          set: { bid: String(s.bid), ask: String(s.ask), ultimo: String(s.ultimo), fuenteTs: s.tsQuote, leidoEn: t },
-        });
-    }
-    if (falla || !s) {
-      const mensaje = limpiar(falla ? falla.message : "sin quote o trade para el activo");
-      await db
-        .insert(lecturasMercado)
-        .values({ activo, ultimoErrorEn: t, ultimoError: mensaje })
-        .onConflictDoUpdate({ target: lecturasMercado.activo, set: { ultimoErrorEn: t, ultimoError: mensaje } });
-    }
+    if (s) await guardarLectura(db, activo, s, t);
+    if (falla || !s) await guardarLectura(db, activo, { error: limpiar(falla ? falla.message : "sin quote o trade para el activo") }, t);
   }
 }
 

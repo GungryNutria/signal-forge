@@ -215,7 +215,7 @@ async function decidir(
   };
 }
 
-function estadoDe(status: string): "aceptada" | "parcial" | "llenada" | "cancelada" | "rechazada" {
+export function estadoDe(status: string): "aceptada" | "parcial" | "llenada" | "cancelada" | "rechazada" {
   switch (status) {
     case "filled":
       return "llenada";
