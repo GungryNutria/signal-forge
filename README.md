@@ -35,6 +35,19 @@ The easiest way to deploy your Next.js app is to use the [Vercel Platform](https
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
 
+## Release y deploy (GitHub Actions + Coolify)
+
+`.github/workflows/release.yml` corre en cada push a `main`: construye el `Dockerfile`, publica `ghcr.io/gungrynutria/signal-forge:<sha>` y `:latest` (con `GITHUB_TOKEN`, `packages: write`) y llama a Coolify para redesplegar. `workflow_dispatch` solo construye (sin push a GHCR ni deploy), para validar sin tocar `main`.
+
+Endpoint de deploy de Coolify v4: `POST <instancia>/api/v1/deploy?uuid=<uuid-de-la-app>` con la cabecera `Authorization: Bearer <token>` (`force=true` reconstruye sin cache). Fuentes (consultadas el 2026-11-06): <https://coolify.io/docs/api-reference/api/operations/deploy-by-tag-or-uuid> (metodo, ruta `/deploy`, parametros `uuid`, `tag`, `force`) y <https://coolify.io/docs/api-reference/authorization> (prefijo `/api/v1` y Bearer). TODO: Verify contra Coolify 4.1.1 en T-21.
+
+Secretos del repositorio (solo estos dos; si falta alguno el deploy se omite con un aviso):
+
+- `COOLIFY_DEPLOY_URL`: URL completa, p. ej. `https://<coolify>/api/v1/deploy?uuid=<uuid-de-signalforge-web>`.
+- `COOLIFY_TOKEN`: token de API de Coolify (Keys & Tokens > API tokens, permiso de deploy).
+
+El paquete GHCR nace privado: en Coolify hay que registrar credenciales de GHCR o hacerlo publico (lo decide Edgardo en T-21).
+
 ## Tarea programada de Claude (investigación)
 
 La investigación corre como tarea programada en claude.ai (suscripción Max) y envía una investigación por activo a `POST /api/v1/investigaciones`. No tiene llaves del broker ni acceso a la base: su única vía es esa API con su token. Las instrucciones que sigue están en [`investigacion/instrucciones-v1.md`](investigacion/instrucciones-v1.md) (versión `investigacion-v1`). Las pone en marcha Edgardo (T-22).
