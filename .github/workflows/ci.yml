@@ -1,0 +1,149 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main, "feat/**"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Variables señuelo: ningún secreto real entra a CI.
+  APP_ENV: test
+  DATABASE_URL: postgres://sf:sf@localhost:5432/signalforge_test
+  TEST_DATABASE_URL: postgres://sf:sf@localhost:5432/signalforge_test
+  APCA_API_KEY_ID: ci-decoy-key-id
+  APCA_API_SECRET_KEY: ci-decoy-secret
+  APCA_API_BASE_URL: https://paper-api.alpaca.markets
+  DASHBOARD_USUARIO: ci-usuario
+  DASHBOARD_CONTRASENA: ci-contrasena
+  INVESTIGADOR_TOKEN_SHA256: "0000000000000000000000000000000000000000000000000000000000000000"
+  TRADING_PAUSADO: "false"
+
+jobs:
+  calidad:
+    name: Lint, tipos, unit y build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - run: npm run build:procesos
+
+  integracion:
+    name: Integración (Postgres 17)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: sf
+          POSTGRES_PASSWORD: sf
+          POSTGRES_DB: signalforge_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U sf -d signalforge_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run test:integracion
+
+  gitleaks:
+    name: Gitleaks (historial completo)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2.3.9
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  e2e:
+    name: E2E (Playwright)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: sf
+          POSTGRES_PASSWORD: sf
+          POSTGRES_DB: signalforge_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U sf -d signalforge_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Detectar specs E2E
+        id: e2e
+        run: |
+          if [ -d tests/e2e ] && [ -n "$(find tests/e2e -name '*.spec.ts' -print -quit)" ]; then
+            echo "hay=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "hay=false" >> "$GITHUB_OUTPUT"
+            echo "No hay specs en tests/e2e todavía: el job no hace nada."
+          fi
+      - uses: actions/setup-node@v4
+        if: steps.e2e.outputs.hay == 'true'
+        with:
+          node-version: 24
+          cache: npm
+      - if: steps.e2e.outputs.hay == 'true'
+        run: npm ci
+      - if: steps.e2e.outputs.hay == 'true'
+        run: npx playwright install --with-deps chromium
+      - if: steps.e2e.outputs.hay == 'true'
+        run: npm run build && npm run build:procesos
+      - if: steps.e2e.outputs.hay == 'true'
+        run: node dist/migrar.mjs
+      - name: Levantar la app y correr Playwright
+        if: steps.e2e.outputs.hay == 'true'
+        env:
+          PORT: "3000"
+          BASE_URL: http://localhost:3000
+        run: |
+          npm start > next.log 2>&1 &
+          for i in $(seq 1 60); do
+            curl -s -o /dev/null http://localhost:3000/api/health && break
+            [ "$i" = 60 ] && { cat next.log; exit 1; }
+            sleep 1
+          done
+          npx playwright test
+      - name: Subir reporte de Playwright
+        if: failure() && steps.e2e.outputs.hay == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
+          retention-days: 7
