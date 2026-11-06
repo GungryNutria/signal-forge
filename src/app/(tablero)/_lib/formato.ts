@@ -111,7 +111,7 @@ export function dominio(url: string): { dominio: string; enlazable: boolean } {
 export const unidad = (activo: string): string => activo.split("/")[0];
 
 // Reglas de riesgo (REQ-9): nombre corto para "R3 tamaño: 1,001.00 USD > límite 1,000.00 USD".
-const NOMBRE_REGLA: Record<string, string> = {
+export const NOMBRE_REGLA: Record<string, string> = {
   R1: "activo",
   R2: "venta",
   R3: "tamaño",
@@ -126,7 +126,7 @@ const NOMBRE_REGLA: Record<string, string> = {
 const SUPERA = new Set(["R3", "R4", "R5", "R7"]);
 
 /** Valores monetarios del motor (`1001.00 USD`) con el formato del tablero. */
-const valorRegla = (v: string): string => {
+export const valorRegla = (v: string): string => {
   const m = /^(-?\d+(?:\.\d+)?) USD$/.exec(v);
   return m ? usd(m[1]) : v;
 };
@@ -151,3 +151,31 @@ const MOTIVO: Record<string, string> = {
   aprobada: "Aprobada",
 };
 export const motivo = (m: string): string => MOTIVO[m] ?? m;
+
+const diaHoraSeg = new Intl.DateTimeFormat("es-MX", {
+  timeZone: "UTC",
+  day: "numeric",
+  month: "short",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23",
+});
+const diaHoraSegZona = new Intl.DateTimeFormat("es-MX", {
+  timeZone: ZONA,
+  day: "numeric",
+  month: "short",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23",
+});
+const quitar = (s: string) => s.replace(/\./g, "");
+
+/** `6 nov, 14:30:04 (UTC−6)`: fecha y hora de Torreón con su zona. */
+export const momento = (iso: string): string =>
+  `${quitar(diaHoraSegZona.format(new Date(iso)))} (${zona(new Date(iso))})`;
+/** `6 nov, 20:30:04 UTC`. */
+export const momentoUtc = (iso: string): string => `${quitar(diaHoraSeg.format(new Date(iso)))} UTC`;
+/** `6 nov, 14:30` (hora de Torreón; el encabezado de la columna dice la zona). */
+export const diaYHora = (iso: string): string => `${dia(iso)}, ${horaCorta(iso)}`;

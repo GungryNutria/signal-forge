@@ -20,7 +20,7 @@ export function RotuloInformativa() {
   );
 }
 
-function Fuente({ url }: { url: string }) {
+export function Fuente({ url }: { url: string }) {
   const { dominio: d, enlazable } = dominio(url);
   return (
     <li className="min-w-0">

@@ -9,7 +9,7 @@ import { listarPropuestas } from "@/server/consultas/propuestas";
 // memoriza por petición (`cache`) para que dos bloques con la misma fuente no la lean dos veces y vean la misma hora.
 // Una consulta que falla guarda su rechazo: los bloques que comparten fuente fallan juntos, los demás no.
 
-const conHora = <T>(consulta: (ahora: Date) => Promise<T>) =>
+export const conHora = <T>(consulta: (ahora: Date) => Promise<T>) =>
   cache(async () => {
     await connection();
     const ahora = new Date();

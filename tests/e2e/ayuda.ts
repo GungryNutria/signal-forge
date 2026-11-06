@@ -50,3 +50,16 @@ export async function agregarEjecucion(estado: "completada" | "error" | "omitida
     await pool.end();
   }
 }
+
+export const MEDIDAS = [
+  { ancho: 1280, alto: 800 },
+  { ancho: 390, alto: 844 },
+  { ancho: 360, alto: 800 },
+] as const;
+
+/** Con CAPTURAS=<carpeta> guarda la página completa (solo se piden a 1280 y 390). */
+export async function capturar(page: import("@playwright/test").Page, ancho: number, nombre: string) {
+  const carpeta = process.env.CAPTURAS;
+  if (!carpeta || ancho === 360) return;
+  await page.screenshot({ path: `${carpeta}/${nombre}_${ancho}.png`, fullPage: true });
+}

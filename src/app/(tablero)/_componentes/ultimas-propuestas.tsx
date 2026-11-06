@@ -13,7 +13,7 @@ import { Vacio } from "./tarjeta";
 const COLOR = { "-1": "text-neg", "0": "text-ink", "1": "text-pos" } as const;
 
 /** Qué se muestra en "Estado o motivo": el estado de la operación (ejecutadas) o el motivo (las demás). */
-function EstadoOMotivo({ f }: { f: FilaPropuesta }) {
+export function EstadoOMotivo({ f }: { f: FilaPropuesta }) {
   if (f.decision === "ejecutada" && f.estado) return <ChipOperacion estado={f.estado} />;
   if (f.decision === "rechazada" && f.reglaPrincipal) {
     return (
@@ -37,7 +37,7 @@ function pnlDe(f: FilaPropuesta, abiertos: LoteAbierto[] | null): { texto: strin
   return { texto: "—", valor: null };
 }
 
-function Pnl({ f, abiertos, movil = false }: { f: FilaPropuesta; abiertos: LoteAbierto[] | null; movil?: boolean }) {
+export function Pnl({ f, abiertos, movil = false }: { f: FilaPropuesta; abiertos: LoteAbierto[] | null; movil?: boolean }) {
   const { texto, valor } = pnlDe(f, abiertos);
   if (valor === null) {
     if (texto === "No disponible") return <span className="text-muted">No disponible</span>;
@@ -47,10 +47,10 @@ function Pnl({ f, abiertos, movil = false }: { f: FilaPropuesta; abiertos: LoteA
 }
 
 /** Fila entera clicable hacia S3: el enlace se extiende sobre la fila y lleva el nombre accesible. */
-function Enlace({ f, children }: { f: FilaPropuesta; children: ReactNode }) {
+export function Enlace({ f, children, sufijo = "" }: { f: FilaPropuesta; children: ReactNode; sufijo?: string }) {
   return (
     <Link
-      href={`/propuestas/${f.id}`}
+      href={`/propuestas/${f.id}${sufijo}`}
       className="after:absolute after:inset-0"
       aria-label={`Ver la propuesta de las ${hora(f.recibidaEn)}${f.activo ? `, ${f.activo}` : ""}`}
     >

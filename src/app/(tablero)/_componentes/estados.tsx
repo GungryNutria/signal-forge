@@ -61,4 +61,6 @@ export function textoResultado(r: ResultadoActivo | null): string {
   }
 }
 
-export const esOmitida = (estado: EstadoEjecucion) => estado === "omitida_solapamiento";
+export const textoOperacion = (e: EstadoOperacion): string => OPERACION[e].texto;
+
+export const esOmitida =(estado: EstadoEjecucion) => estado === "omitida_solapamiento";
