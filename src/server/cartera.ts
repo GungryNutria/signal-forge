@@ -6,7 +6,7 @@ import { diaUtc, inicioDiaUtc } from "@/core/tiempo";
 /** Conexión o transacción de Drizzle: lo que se pueda consultar con `execute`. */
 export type Consultable = Pick<NodePgDatabase, "execute">;
 
-const SALDO_INICIAL_C = 1_000_000; // 10 000.00 USD
+export const SALDO_INICIAL_C = 1_000_000; // 10 000.00 USD
 const ULTIMO_EVENTO = sql`(SELECT ev.estado FROM eventos_orden ev WHERE ev.orden_id = o.id ORDER BY ev.id DESC LIMIT 1)`;
 
 async function filas<T>(db: Consultable, consulta: ReturnType<typeof sql>): Promise<T[]> {

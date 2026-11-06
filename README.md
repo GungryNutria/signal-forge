@@ -83,3 +83,9 @@ curl -sS -X POST http://127.0.0.1:3000/api/v1/investigaciones \
 ```
 
 Responde `201` con `{"id","estado":"aceptada","recibida_en"}`; repetirlo da `200` con el mismo cuerpo.
+
+## Dataset y datos de prueba
+
+- **Dataset (REQ-26):** `node dist/dataset.mjs [--activo BTC/USD]` escribe en stdout una línea JSON por evaluación del ciclo (la vista `v_dataset`). Solo hace `SELECT` y solo necesita `DATABASE_URL`.
+- **Semillas:** `npx tsx scripts/sembrar.ts <escenario> [--reiniciar]` carga un escenario con horas relativas a "ahora" (`vacio`, `ejecutada-y-rechazada`, `casos-ac9`, `ejecuciones-por-caso`, `pausa-auto`, `ciclo-detenido-46`, `metricas-conocidas`, etc.; la lista completa está en `scripts/sembrar.ts`). Se niega si `APP_ENV` es `produccion` o no está definido. `--reiniciar` recrea el esquema y solo se permite con `APP_ENV=test` y una base cuyo nombre contenga `test` o `e2e`. Para `pausa-manual`, arranca la app con `TRADING_PAUSADO=true`.
+- **Falla inyectada (solo `APP_ENV` `test` o `desarrollo`):** `SF_FALLA_INYECTADA=estadoSistema,listarPropuestas` hace fallar esas consultas del tablero para probar el error por bloque.

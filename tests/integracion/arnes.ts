@@ -28,3 +28,31 @@ export async function reiniciarBase(): Promise<void> {
     await pool.end();
   }
 }
+
+const TABLAS = [
+  "ejecuciones",
+  "ejecuciones_cierre",
+  "evaluaciones",
+  "propuestas",
+  "ordenes",
+  "eventos_orden",
+  "lotes",
+  "cierres_lote",
+  "investigaciones",
+  "eventos",
+  "lecturas_mercado",
+];
+
+/** Vacía todas las tablas sin recrear el esquema (más rápido que `reiniciarBase`). Pide superusuario: desactiva los triggers de solo inserción. */
+export async function vaciarBase(): Promise<void> {
+  const pool = abrirPool(1);
+  const c = await pool.connect();
+  try {
+    await c.query("SET session_replication_role = replica");
+    await c.query(`TRUNCATE ${TABLAS.join(", ")} CASCADE`);
+  } finally {
+    await c.query("SET session_replication_role = DEFAULT");
+    c.release();
+    await pool.end();
+  }
+}
