@@ -107,7 +107,7 @@ export function precioConocido(): {
   puntosBtc: { t: string; cierre: string; sma20: string; cierrePrevio: string; resultado: string; hueco: boolean }[];
   sl: { precio: number; salida: number };
   tp: { precio: number; salida: number };
-  abierta: { precio: number; niveles: { stopLoss: number; takeProfit: number } };
+  abierta: { precio: number; niveles: { stopLoss: number; takeProfit: number }; regla: { close_ultimo: number; close_previo: number; sma20: number } };
   desdeS3: { precio: number; entradaHace: number; rango: string; abierta: boolean }[];
   abiertas: { precio: number[]; entradaHace: number[] };
 } {

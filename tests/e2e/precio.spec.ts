@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import { BASE, CREDENCIALES, precioConocido, PUERTOS, SIN_BASE, sembrar, url } from "./ayuda";
 
 // S6 Precio (spec 002), parte de página y estados (T-4): AC-12 a 15, AC-UX-7, 10, 12 a 15 y AC-UX-17 (sin escritura).
@@ -166,5 +166,266 @@ test.describe("errores", () => {
     await expect(page.locator("main [data-grafica]")).toHaveCount(1);
     await expect(page.getByText("Sin operaciones en este rango")).toHaveCount(0);
     await ctx.close();
+  });
+});
+
+// ───────────────────────────── Gráfica (T-5) ─────────────────────────────
+
+const grafica = (page: Page) => page.locator("[data-grafica]");
+const panel = (page: Page) => page.locator("[data-panel-consulta]");
+const lista = async (page: Page) => {
+  await expect(page.locator("[data-grafica-lista]")).toBeVisible();
+  await expect(page.locator("svg[data-capa]")).toBeVisible();
+};
+const centro = async (l: Locator) => {
+  await l.page().locator("[data-grafica]").scrollIntoViewIfNeeded();
+  const b = (await l.locator("path, rect").first().boundingBox())!;
+  return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+};
+const marcador = (page: Page, prefijo: "e" | "s") => page.locator(`[data-marcador^='${prefijo}:']`);
+
+test.describe("gráfica: líneas y consulta de puntos", () => {
+  test("AC-3: ambas líneas se cortan en los dos huecos (3 tramos) y no hay un segmento que una los lados", async ({ page }) => {
+    sembrar("precio-serie");
+    await page.goto("/precio");
+    await lista(page);
+    const trazos = await page.locator("main svg.recharts-surface path.recharts-line-curve").evaluateAll((ps) => ps.map((p) => (p.getAttribute("d") ?? "").match(/M/g)?.length));
+    expect(trazos).toEqual([3, 3]);
+  });
+
+  test("AC-4 y AC-UX-3: el puntero consulta el punto más cercano con vela, UTC, cierre, SMA20, cierre anterior y resultado", async ({ page }) => {
+    sembrar("precio-serie");
+    await page.goto("/precio");
+    await lista(page);
+    await expect(panel(page)).toContainText("Pasa el puntero o usa las flechas sobre la gráfica para ver el detalle de un punto");
+    await expect(panel(page)).toContainText("Sin operaciones en este rango");
+    await grafica(page).scrollIntoViewIfNeeded();
+    const b = (await grafica(page).boundingBox())!;
+    await page.mouse.move(b.x + b.width * 0.6, b.y + 40);
+    await expect(panel(page)).toContainText(/Vela \d{2}:\d{2} a \d{2}:\d{2} \(UTC−6\)/);
+    await expect(panel(page)).toContainText(/\d{2}:\d{2} \(UTC−6\) · \d{2}:\d{2} UTC/);
+    for (const t of ["Cierre", "SMA20", "Cierre anterior", "Resultado"]) await expect(panel(page).getByText(t, { exact: true })).toBeVisible();
+    await expect(panel(page)).toContainText(/Sin señal|Propuesta/);
+    await expect(panel(page)).toHaveAttribute("role", "status");
+  });
+
+  test("AC-UX-3: con el teclado, una sola parada de Tab, ← → Inicio Fin y Esc; los valores son los sembrados", async ({ page }) => {
+    sembrar("precio-serie");
+    await page.goto("/precio");
+    await lista(page);
+    const P = K.puntosBtc;
+    await grafica(page).focus();
+    await page.keyboard.press("End");
+    await expect(panel(page)).toContainText(usd(P[P.length - 1].cierre));
+    await expect(panel(page)).toContainText(usd(P[P.length - 1].sma20));
+    await page.keyboard.press("ArrowLeft");
+    await expect(panel(page)).toContainText(usd(P[P.length - 2].cierre));
+    await page.keyboard.press("Home");
+    await expect(panel(page)).toContainText(usd(P[0].cierre));
+    await page.keyboard.press("ArrowRight");
+    await expect(panel(page)).toContainText(usd(P[1].cierre));
+    await page.keyboard.press("Escape");
+    await expect(panel(page)).toContainText("Pasa el puntero");
+    await expect(grafica(page)).toBeFocused();
+    // Una sola parada de Tab: de la gráfica se sale al siguiente elemento, no a un punto interno.
+    await page.keyboard.press("Tab");
+    expect(await page.evaluate(() => document.activeElement?.closest("[data-grafica]") !== null)).toBe(false);
+  });
+
+  test("AC-4 y AC-UX-3: un toque consulta el punto más cercano al dedo", async ({ browser }) => {
+    sembrar("precio-serie");
+    const ctx = await browser.newContext({ httpCredentials: CREDENCIALES, hasTouch: true, viewport: { width: 390, height: 844 } });
+    const page = await ctx.newPage();
+    await page.goto(`${url(PUERTOS.normal)}/precio`);
+    await lista(page);
+    await expect(panel(page)).toContainText("Toca un punto o un marcador para ver su detalle");
+    await grafica(page).scrollIntoViewIfNeeded();
+    const b = (await grafica(page).boundingBox())!;
+    await page.touchscreen.tap(b.x + b.width * 0.5, b.y + 30);
+    await expect(panel(page)).toContainText(/Vela \d{2}:\d{2} a \d{2}:\d{2} \(UTC−6\)/);
+    await ctx.close();
+  });
+
+  test("AC-UX-15: el eje va en horas de Torreón en 24 h y en días en 7 días, con la zona visible", async ({ page }) => {
+    sembrar("precio-historia-incompleta");
+    await page.goto("/precio?activo=BTC%2FUSD&rango=24h");
+    await lista(page);
+    await expect(page.locator("[class*='xAxis-tick-labels'] text")).not.toHaveCount(0);
+    const horas = await page.locator("[class*='xAxis-tick-labels'] text").allTextContents();
+    expect(horas.length).toBeGreaterThan(2);
+    expect(horas.every((t) => /^\d{2}:00( · \d+ [a-z]{3})?$/.test(t))).toBe(true);
+    await expect(page.locator("svg[data-capa]")).toContainText("Hora de Torreón (UTC−6)");
+    await page.goto("/precio?activo=BTC%2FUSD&rango=7d");
+    await lista(page);
+    await expect(page.locator("[class*='xAxis-tick-labels'] text")).not.toHaveCount(0);
+    const dias = await page.locator("[class*='xAxis-tick-labels'] text").allTextContents();
+    expect(dias.length).toBeGreaterThan(1);
+    expect(dias.every((t) => /^\d+ [a-z]{3}$/.test(t))).toBe(true);
+    await expect(page.locator("svg[data-capa]")).toContainText("Día · hora de Torreón (UTC−6)");
+  });
+});
+
+test.describe("gráfica: marcadores, niveles y consulta de operaciones", () => {
+  test("AC-5: dos entradas y dos salidas con formas distintas, más la entrada abierta", async ({ page }) => {
+    sembrar("precio-operaciones");
+    await page.goto("/precio");
+    await lista(page);
+    await expect(marcador(page, "e")).toHaveCount(3);
+    await expect(marcador(page, "s")).toHaveCount(2);
+    const formas = await page.locator("[data-marcador]").evaluateAll((gs) =>
+      gs.map((g) => [g.getAttribute("data-marcador")?.[0], g.querySelector("rect") ? "cuadrado" : (g.querySelector("path")?.getAttribute("d") ?? "").startsWith("M0 -9") ? "rombo" : "triangulo"]),
+    );
+    expect(formas.filter(([t]) => t === "e").every(([, f]) => f === "triangulo")).toBe(true);
+    expect(formas.filter(([t]) => t === "s").map(([, f]) => f).sort()).toEqual(["cuadrado", "rombo"]);
+    for (const t of ["Entrada", "Stop loss", "Take profit"]) await expect(page.getByRole("list", { name: "Leyenda" })).toContainText(t);
+  });
+
+  test("AC-6 y AC-UX-5: la consulta de una salida muestra hora, precio, motivo, nivel, PnL con signo y duración", async ({ page }) => {
+    sembrar("precio-operaciones");
+    await page.goto("/precio");
+    await lista(page);
+    const sl = marcador(page, "s").filter({ has: page.locator("rect") });
+    const c = await centro(sl);
+    await page.mouse.move(c.x, c.y);
+    await expect(panel(page).getByRole("heading", { name: "Stop loss" })).toBeVisible();
+    await expect(panel(page)).toContainText(usd(K.sl.salida));
+    await expect(panel(page)).toContainText("Cierre por stop loss");
+    await expect(panel(page)).toContainText(/PnL neto\s*−[\d,.]+ USD \(−[\d.]+\s%\)/);
+    await expect(panel(page)).toContainText("3 h 20 min");
+    await expect(panel(page)).toContainText(/Entrada \d{2}:\d{2}|Entrada \d+ nov, \d{2}:\d{2}/);
+    const tp = marcador(page, "s").filter({ hasNot: page.locator("rect") });
+    const c2 = await centro(tp);
+    await page.mouse.move(c2.x, c2.y);
+    await expect(panel(page).getByRole("heading", { name: "Take profit" })).toBeVisible();
+    await expect(panel(page)).toContainText(/PnL neto\s*\+[\d,.]+ USD \(\+[\d.]+\s%\)/);
+  });
+
+  test("AC-6: la consulta de la entrada abierta muestra tamaño, valores de la regla y niveles vigentes", async ({ page }) => {
+    sembrar("precio-operaciones");
+    await page.goto("/precio");
+    await lista(page);
+    const c = await centro(marcador(page, "e").filter({ hasText: "#1" }));
+    await page.mouse.move(c.x, c.y);
+    await expect(panel(page).getByRole("heading", { name: "Entrada #1" })).toBeVisible();
+    await expect(panel(page)).toContainText("Abierta");
+    await expect(panel(page)).toContainText(usd(K.abierta.precio));
+    await expect(panel(page)).toContainText(/Tamaño\s*[\d.]+ BTC · 500.00 USD/);
+    await expect(panel(page)).toContainText(usd(K.abierta.regla.close_ultimo));
+    await expect(panel(page)).toContainText(usd(K.abierta.regla.close_previo));
+    await expect(panel(page)).toContainText(usd(K.abierta.regla.sma20));
+    await expect(panel(page)).toContainText(`SL #1 · ${usd(K.abierta.niveles.stopLoss)}`);
+    await expect(panel(page)).toContainText(`TP #1 · ${usd(K.abierta.niveles.takeProfit)}`);
+    await expect(panel(page)).toContainText(/Última vela: [\d.]+\s% (sobre|bajo) el SL/);
+  });
+
+  test("AC-10: la posición abierta muestra SL y TP rotulados; al cerrarse, sin niveles y con su salida", async ({ page }) => {
+    sembrar("precio-operaciones");
+    await page.goto("/precio");
+    await lista(page);
+    await expect(page.locator("[data-nivel-linea]")).toHaveCount(2);
+    await expect(page.locator("[data-rotulo-nivel]")).toHaveCount(2);
+    await expect(page.locator("svg[data-capa]")).toContainText(`SL #1 · ${usd(K.abierta.niveles.stopLoss)}`);
+    await expect(page.locator("svg[data-capa]")).toContainText(`TP #1 · ${usd(K.abierta.niveles.takeProfit)}`);
+    sembrar("precio-operaciones-cerrada");
+    await page.goto("/precio");
+    await lista(page);
+    await expect(page.locator("[data-nivel-linea]")).toHaveCount(0);
+    await expect(page.locator("[data-rotulo-nivel]")).toHaveCount(0);
+    await expect(marcador(page, "s")).toHaveCount(3);
+  });
+
+  test("AC-7 y AC-UX-4: un clic en un marcador lleva a S3 (1 clic); con el teclado, Intro", async ({ page }) => {
+    sembrar("precio-operaciones");
+    await page.goto("/precio");
+    await lista(page);
+    const c = await centro(marcador(page, "e").filter({ hasText: "#1" }));
+    await page.mouse.click(c.x, c.y);
+    await expect(page).toHaveURL(/\/propuestas\/[0-9a-f-]{36}\?de=precio&v=/);
+    await page.goto("/precio");
+    await lista(page);
+    await grafica(page).focus();
+    await page.keyboard.press("PageDown");
+    await expect(panel(page)).toContainText(/Entrada|Stop loss|Take profit/);
+    await page.keyboard.press("Enter");
+    await expect(page).toHaveURL(/\/propuestas\/[0-9a-f-]{36}\?de=precio&v=/);
+  });
+
+  test("AC-7 y AC-UX-4: en táctil, un toque consulta y 'Ver operación' navega (2 toques)", async ({ browser }) => {
+    sembrar("precio-operaciones");
+    const ctx = await browser.newContext({ httpCredentials: CREDENCIALES, hasTouch: true, viewport: { width: 390, height: 844 } });
+    const page = await ctx.newPage();
+    await page.goto(`${url(PUERTOS.normal)}/precio`);
+    await lista(page);
+    const c = await centro(marcador(page, "e").filter({ hasText: "#1" }));
+    await page.touchscreen.tap(c.x, c.y);
+    await expect(panel(page).getByRole("heading", { name: "Entrada #1" })).toBeVisible();
+    await expect(page).toHaveURL(/\/precio/);
+    await panel(page).getByRole("link", { name: /Ver operación/ }).tap();
+    await expect(page).toHaveURL(/\/propuestas\/[0-9a-f-]{36}\?de=precio&v=/);
+    await ctx.close();
+  });
+
+  test("AC-8: la salida cuya entrada queda fuera del rango lo dice en su consulta", async ({ page }) => {
+    sembrar("precio-fuera-de-rango");
+    await page.goto("/precio");
+    await lista(page);
+    await expect(marcador(page, "e")).toHaveCount(0);
+    const c = await centro(marcador(page, "s"));
+    await page.mouse.move(c.x, c.y);
+    await expect(panel(page)).toContainText(/Entrada el \d+ nov, fuera de este rango/);
+  });
+
+  test("AC-11 y AC-UX-8: con 3 posiciones, rótulos con nombre, precio y número, sin intersección; consultar #2 destaca solo sus niveles", async ({ page }) => {
+    sembrar("precio-abiertas-3");
+    await page.goto("/precio?activo=SOL%2FUSD");
+    await lista(page);
+    const texto = await page.locator("[data-rotulo-nivel]").allTextContents();
+    for (const n of ["#1", "#2", "#3"]) expect(texto.join(" ")).toContain(n);
+    expect(texto.join(" ")).toMatch(/USD/);
+    const cajas = await page.locator("[data-rotulo-nivel] rect").evaluateAll((rs) => rs.map((r) => r.getBoundingClientRect()).map((b) => ({ x: b.x, y: b.y, w: b.width, h: b.height })));
+    for (let i = 0; i < cajas.length; i++)
+      for (let j = i + 1; j < cajas.length; j++) {
+        const [a, b] = [cajas[i], cajas[j]];
+        expect(a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h, `rótulos ${i} y ${j} se tocan`).toBe(false);
+      }
+    const c = await centro(marcador(page, "e").filter({ hasText: "#2" }));
+    await page.mouse.move(c.x, c.y);
+    await expect(panel(page).getByRole("heading", { name: "Entrada #2" })).toBeVisible();
+    await expect(page.locator("[data-nivel-linea='2-stop_loss']")).toHaveAttribute("stroke-width", "3");
+    await expect(page.locator("[data-nivel-linea='2-take_profit']")).toHaveAttribute("stroke-width", "3");
+    await expect(page.locator("[data-nivel-linea='1-stop_loss']")).toHaveAttribute("opacity", "0.65");
+    await expect(page.locator("[data-nivel-linea='3-take_profit']")).toHaveAttribute("opacity", "0.65");
+  });
+
+  test("AC-UX-9: con 48 entradas, ningún marcador queda oculto sin indicarlo: la suma de cuentas es 48 a 1280 y a 360 px", async ({ browser }) => {
+    sembrar("precio-48-entradas");
+    for (const ancho of [1280, 360]) {
+      const ctx = await browser.newContext({ httpCredentials: CREDENCIALES, viewport: { width: ancho, height: 800 } });
+      const page = await ctx.newPage();
+      await page.goto(`${url(PUERTOS.normal)}/precio`);
+      await lista(page);
+      const sueltos = await page.locator("[data-marcador]").count();
+      const grupos = await page.locator("[data-grupo]").evaluateAll((gs) => gs.map((g) => Number(g.getAttribute("data-grupo"))));
+      expect(sueltos + grupos.reduce((a, b) => a + b, 0)).toBe(48);
+      expect(grupos.length).toBeGreaterThan(0);
+      for (const g of await page.locator("[data-grupo]").all()) await expect(g).toContainText(/×\d+/);
+      await ctx.close();
+    }
+  });
+
+  test("AC-UX-4: un grupo lista sus operaciones, cada una con su enlace; Intro en el grupo lleva el foco al primer enlace", async ({ page }) => {
+    sembrar("precio-48-entradas");
+    await page.goto("/precio");
+    await lista(page);
+    const grupo = page.locator("[data-grupo]").first();
+    const c = await centro(grupo);
+    await page.mouse.move(c.x, c.y);
+    const n = Number(await grupo.getAttribute("data-grupo"));
+    await expect(panel(page).getByRole("heading", { name: `${n} operaciones` })).toBeVisible();
+    await expect(panel(page).getByRole("list", { name: "Operaciones del grupo" }).getByRole("listitem")).toHaveCount(n);
+    await expect(panel(page).getByRole("link", { name: /Ver operación/ })).toHaveCount(n);
+    await grafica(page).focus();
+    await page.keyboard.press("Enter");
+    await expect(panel(page).getByRole("link").first()).toBeFocused();
   });
 });
