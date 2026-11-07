@@ -15,3 +15,6 @@ Dockerfile
 .dockerignore
 README.md
 AGENTS.md
+
+# La config de Playwright importa tests/ (excluido arriba) y rompe el typecheck del build.
+playwright.config.ts
