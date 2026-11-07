@@ -1,0 +1,17 @@
+.git
+.github
+node_modules
+.next
+dist
+coverage
+test-results
+playwright-report
+*.tsbuildinfo
+.env*
+tests
+scripts
+investigacion
+Dockerfile
+.dockerignore
+README.md
+AGENTS.md
