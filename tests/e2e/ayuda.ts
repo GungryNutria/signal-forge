@@ -13,6 +13,8 @@ export const PUERTOS = {
   fallaCartera: 3197,
   fallaMetricas: 3198,
   fallaEjecuciones: 3199,
+  fallaSeriePrecio: 3200,
+  fallaOperacionesPrecio: 3201,
 } as const;
 
 export const BASE = process.env.E2E_DATABASE_URL;
@@ -95,4 +97,23 @@ export async function vigilarCarga(page: import("@playwright/test").Page, contex
   }
   await navegacion;
   return { visto, textosConDato };
+}
+
+/**
+ * `PRECIO_CONOCIDO` de `scripts/sembrar.ts` (spec 002). Playwright carga los tests como CommonJS y el script usa
+ * `import.meta`, así que se lee con tsx y se devuelve como JSON: constantes y los puntos de BTC/USD de `precio-serie`.
+ */
+export function precioConocido(): {
+  puntosBtc: { t: string; cierre: string; sma20: string; cierrePrevio: string; resultado: string; hueco: boolean }[];
+  sl: { precio: number; salida: number };
+  tp: { precio: number; salida: number };
+  abierta: { precio: number; niveles: { stopLoss: number; takeProfit: number } };
+  desdeS3: { precio: number; entradaHace: number; rango: string; abierta: boolean }[];
+  abiertas: { precio: number[]; entradaHace: number[] };
+} {
+  const codigo = `import { PRECIO_CONOCIDO as K } from "./scripts/sembrar";
+const n = (f: (i: number) => number) => Array.from({ length: 10 }, (_, i) => f(i));
+console.log(JSON.stringify({ puntosBtc: K.puntosBtc(new Date()), sl: K.sl, tp: K.tp, abierta: K.abierta, desdeS3: K.desdeS3, abiertas: { precio: n(K.abiertas.precio), entradaHace: n(K.abiertas.entradaHace) } }));`;
+  const salida = execFileSync(process.execPath, ["node_modules/tsx/dist/cli.mjs", "--eval", codigo], { env: { ...process.env, APP_ENV: "test" }, encoding: "utf8" });
+  return JSON.parse(salida.trim().split("\n").at(-1) as string);
 }
