@@ -98,12 +98,17 @@ async function investigacion(
 
 // ───────────────────────────── Ejecuciones y evaluaciones ─────────────────────────────
 
-function fotoDe(activo: Activo, evaluadaEn: Date, resultado: Resultado, inv?: Inv) {
+/** Closes explícitos (el último es el cierre de la vela que termina en `cierre`): fija lo que verá la serie de precio. */
+type Vela = { closes: number[]; cierre: Date };
+
+function fotoDe(activo: Activo, evaluadaEn: Date, resultado: Resultado, inv?: Inv, vela?: Vela) {
   const conDatos = resultado === "propuesta" || resultado === "sin_senal";
   const ranura = ranura30(evaluadaEn).getTime();
   const base = PRECIO_BASE[activo];
   const subiendo = resultado === "propuesta";
-  const barras: BarraMercado[] = conDatos
+  const barras: BarraMercado[] = conDatos && vela
+    ? vela.closes.map((c, i) => ({ t: new Date(vela.cierre.getTime() - (vela.closes.length - i) * 30 * MIN).toISOString(), c, v: 10 }))
+    : conDatos
     ? Array.from({ length: 49 }, (_, i) => {
         const k = 49 - i; // la más vieja primero
         const paso = subiendo ? i : -i;
@@ -139,7 +144,8 @@ function fotoDe(activo: Activo, evaluadaEn: Date, resultado: Resultado, inv?: In
   });
 }
 
-type SpecEval = { resultado: Resultado; inv?: Inv; errorDetalle?: string };
+/** `closes` y `velaHace` (minutos entre el inicio de la ejecución y el cierre de la última vela; 0 por defecto) fijan la serie de precio. */
+type SpecEval = { resultado: Resultado; inv?: Inv; errorDetalle?: string; closes?: number[]; velaHace?: number };
 type Ejecucion = { id: string; inicio: Date; evaluaciones: Partial<Record<Activo, string>> };
 
 async function ejecucion(
@@ -176,7 +182,7 @@ async function ejecucion(
       evaluadaEn,
       resultado: e.resultado,
       versionRegla: TENDENCIA_SMA_V1.version,
-      foto: fotoDe(activo, evaluadaEn, e.resultado, e.inv),
+      foto: fotoDe(activo, evaluadaEn, e.resultado, e.inv, e.closes && { closes: e.closes, cierre: new Date(inicio.getTime() - (e.velaHace ?? 0) * MIN) }),
       investigacionId: e.inv?.id ?? null,
       errorDetalle: e.errorDetalle ?? (e.resultado === "datos_no_disponibles" ? "bars: sin respuesta del proveedor" : null),
     });
@@ -260,6 +266,8 @@ async function propuesta(
     ejecucionId?: string | null;
     evaluacionId?: string | null;
     original?: boolean;
+    /** Valores de la regla guardados en la justificación (por defecto, los de siempre). */
+    regla?: { close_ultimo: number; close_previo: number; sma20: number };
   },
 ): Promise<string> {
   const id = randomUUID();
@@ -289,7 +297,7 @@ async function propuesta(
     justificacion: o.activo
       ? {
           entradas: { closes: [99_900, 100_000, 100_100] },
-          resultado: { senal: true, close_ultimo: 100_100, close_previo: 100_000, sma20: 99_990 },
+          resultado: { senal: true, ...(o.regla ?? { close_ultimo: 100_100, close_previo: 100_000, sma20: 99_990 }) },
         }
       : null,
     entradaCruda: o.activo ? cuerpo : { activo: null, lado: "x" },
@@ -469,6 +477,141 @@ export const METRICAS_CONOCIDAS = {
   },
   pnlDiarioGlobal: [{ dias: 3, pnl: "4.95" }, { dias: 2, pnl: "22.35" }, { dias: 1, pnl: "-24.90" }],
 } as const;
+
+// ───────────────────────────── S6 Precio (spec 002) ─────────────────────────────
+
+// Closes sintéticos con media móvil conocida a mano. BTC: c(g) = 100000 + 10 g + (g impar ? 7 : -3); en 20 velas
+// seguidas hay 10 impares y 10 pares (suman +40), así que sma20(g) = 99907 + 10 g (exacta). SOL: c(g) = 200 + g y sma20(g) = 190.5 + g.
+const CIERRES_PRECIO: Record<Activo, { cierre: (g: number) => number; sma20: (g: number) => number }> = {
+  "BTC/USD": { cierre: (g) => 100_000 + 10 * g + (g % 2 ? 7 : -3), sma20: (g) => 99_907 + 10 * g },
+  "SOL/USD": { cierre: (g) => 200 + g, sma20: (g) => 190.5 + g },
+};
+/** La vela número `slot` (0 = la más antigua de la serie) usa la ventana de 21 closes que termina en g = slot + 20. */
+const closesDeSlot = (activo: Activo, slot: number) => Array.from({ length: 21 }, (_, i) => CIERRES_PRECIO[activo].cierre(slot + i));
+
+type SerieOpts = {
+  activo: Activo;
+  /** Velas (ranuras de 30 min) consecutivas, de la más antigua a la más reciente. */
+  total: number;
+  /** Minutos entre ahora y el cierre de la última vela. */
+  ultimoHace: number;
+  /** Ranuras sin ejecución (el ciclo no corrió). */
+  sinEjecucion?: readonly number[];
+  /** Ranuras con una ejecución "Datos no disponibles" (sin punto). */
+  sinDatos?: readonly number[];
+  /** Ranura con una segunda evaluación de la misma vela, un minuto después y con otro cierre. */
+  duplicada?: number;
+};
+
+/** Una ejecución por vela con los closes fijados; el cierre de la vela es el inicio de su ejecución. */
+async function serieDePrecio(s: Sem, o: SerieOpts) {
+  const haceDe = (slot: number) => o.ultimoHace + (o.total - 1 - slot) * 30;
+  for (let slot = 0; slot < o.total; slot++) {
+    if (o.sinEjecucion?.includes(slot)) continue;
+    const spec: SpecEval = o.sinDatos?.includes(slot)
+      ? { resultado: "datos_no_disponibles" }
+      : { resultado: slot % 6 === 0 ? "propuesta" : "sin_senal", closes: closesDeSlot(o.activo, slot) };
+    await ejecucion(s, { hace: haceDe(slot), activos: { [o.activo]: spec } as Partial<Record<Activo, SpecEval>> });
+    if (o.duplicada === slot) {
+      const closes = closesDeSlot(o.activo, slot);
+      closes[20] += PRECIO_CONOCIDO.btc.duplicada.sumaAlCierre;
+      await ejecucion(s, { hace: haceDe(slot) - 1, activos: { [o.activo]: { resultado: "sin_senal", closes, velaHace: 1 } } as Partial<Record<Activo, SpecEval>> });
+    }
+  }
+}
+
+type Regla = { close_ultimo: number; close_previo: number; sma20: number };
+const reglaDe = (precio: number): Regla => ({ close_ultimo: precio + 20, close_previo: precio + 10, sma20: precio - 60 });
+
+/** Propuesta ejecutada con su entrada (por defecto llenada, 500 USD) y, si se pide, su cierre. */
+async function loteDePrecio(
+  s: Sem,
+  o: { activo: Activo; hace: number; precio: number; regla: Regla; entrada?: EntradaFinal; cierre?: { motivo: MotivoCierre; hace: number } },
+) {
+  const propuestaId = await propuesta(s, { hace: o.hace, activo: o.activo, decision: "ejecutada", motivo: "aprobada", regla: o.regla });
+  return operacion(s, { propuestaId, activo: o.activo, hace: o.hace, precio: o.precio, entrada: o.entrada, cierre: o.cierre });
+}
+
+/** Valores esperados de los escenarios `precio-*`, calculados a mano (ver CIERRES_PRECIO). Las horas son minutos antes de `ahora`. */
+export const PRECIO_CONOCIDO = {
+  /** `precio-serie`: BTC/USD en 42 ranuras, sin la 15 (sin ejecución) ni la 25 (datos no disponibles) = 40 puntos. SOL/USD: 10 puntos. */
+  btc: { total: 42, ultimoHace: 10, sinEjecucion: [15] as number[], sinDatos: [25] as number[], huecosEn: [16, 26] as number[], duplicada: { slot: 30, sumaAlCierre: 999 } },
+  sol: { total: 10, ultimoHace: 10 },
+  /** Los puntos que debe devolver `seriePrecio("BTC/USD", "24h", ahora)` en `precio-serie`, en orden ascendente. */
+  puntosBtc(ahora: Date) {
+    const { total, ultimoHace, sinEjecucion, sinDatos, huecosEn } = PRECIO_CONOCIDO.btc;
+    const c = CIERRES_PRECIO["BTC/USD"];
+    return Array.from({ length: total }, (_, slot) => slot)
+      .filter((slot) => !sinEjecucion.includes(slot) && !sinDatos.includes(slot))
+      .map((slot) => ({
+        t: new Date(ahora.getTime() - (ultimoHace + (total - 1 - slot) * 30) * MIN).toISOString(),
+        cierre: String(c.cierre(slot + 20)),
+        sma20: String(c.sma20(slot + 20)),
+        cierrePrevio: String(c.cierre(slot + 19)),
+        resultado: slot % 6 === 0 ? "propuesta" : "sin_senal",
+        hueco: huecosEn.includes(slot),
+      }));
+  },
+  /** `precio-operaciones` (BTC/USD): niveles = entrada x 0.98 y x 1.04; la salida es el nivel que cruzó. */
+  sl: { precio: 100_250, entradaHace: 700, salidaHace: 500, salida: 98_245, regla: { close_ultimo: 100_270, close_previo: 100_260, sma20: 100_190 } },
+  tp: { precio: 100_350, entradaHace: 900, salidaHace: 600, salida: 104_364, regla: { close_ultimo: 100_370, close_previo: 100_360, sma20: 100_290 } },
+  abierta: {
+    precio: 100_450,
+    entradaHace: 300,
+    niveles: { stopLoss: 98_441, takeProfit: 104_468 },
+    /** `precio-operaciones-cerrada`: el mismo lote, cerrado por stop loss. */
+    cierre: { hace: 100, salida: 98_441 },
+    regla: { close_ultimo: 100_470, close_previo: 100_460, sma20: 100_390 },
+  },
+  /** `precio-fuera-de-rango`: abierta hace 26 h (fuera de 24 h) y cerrada hace 2 h por take profit (dentro). */
+  fueraDeRango: { precio: 100_300, entradaHace: 1_560, salidaHace: 120, salida: 104_312, regla: { close_ultimo: 100_320, close_previo: 100_310, sma20: 100_240 } },
+  /** `precio-abiertas-3` y `-10` (SOL/USD): la posición i (0 = #1, la más antigua) entró hace `entradaHace(i)` min. */
+  abiertas: {
+    precio: (i: number) => 230 + 3 * i,
+    entradaHace: (i: number) => 400 - 30 * i,
+    regla: (i: number): Regla => ({ close_ultimo: 231 + 3 * i, close_previo: 230.5 + 3 * i, sma20: 229 + 3 * i }),
+  },
+  /** `precio-desde-s3`: entradas hace 3 h, 3 días y 20 días (cerradas 60 min después) y una abierta hace 5 h; `rango` es el que las incluye. */
+  desdeS3: [
+    { precio: 100_310, entradaHace: 180, rango: "24h", abierta: false },
+    { precio: 100_320, entradaHace: 4_320, rango: "7d", abierta: false },
+    { precio: 100_330, entradaHace: 28_800, rango: "30d", abierta: false },
+    { precio: 100_340, entradaHace: 300, rango: "24h", abierta: true },
+  ],
+} as const;
+
+/** Lote cerrado por SL, lote cerrado por TP, lote abierto (o cerrado) y las cuatro entradas que no abrieron posición. */
+async function operacionesDePrecio(s: Sem, abiertaCerrada: boolean) {
+  const { sl, tp, abierta } = PRECIO_CONOCIDO;
+  await loteDePrecio(s, { activo: "BTC/USD", hace: sl.entradaHace, precio: sl.precio, regla: sl.regla, cierre: { motivo: "stop_loss", hace: sl.salidaHace } });
+  await loteDePrecio(s, { activo: "BTC/USD", hace: tp.entradaHace, precio: tp.precio, regla: tp.regla, cierre: { motivo: "take_profit", hace: tp.salidaHace } });
+  await loteDePrecio(s, {
+    activo: "BTC/USD",
+    hace: abierta.entradaHace,
+    precio: abierta.precio,
+    regla: abierta.regla,
+    cierre: abiertaCerrada ? { motivo: "stop_loss", hace: abierta.cierre.hace } : undefined,
+  });
+  await propuesta(s, {
+    hace: 400,
+    activo: "BTC/USD",
+    nocional: 1001,
+    decision: "rechazada",
+    motivo: "reglas_incumplidas",
+    reglas: reglasDe({ activo: "BTC/USD", nocional: 1001 }),
+  });
+  for (const [hace, entrada] of [[200, "rechazada"], [150, "no_enviada"], [100, "desconocido"]] as const) {
+    await loteDePrecio(s, { activo: "BTC/USD", hace, precio: 100_500, regla: reglaDe(100_500), entrada });
+  }
+}
+
+async function abiertasDePrecio(s: Sem, n: number) {
+  await serieDePrecio(s, { activo: "SOL/USD", total: 48, ultimoHace: 10 });
+  const a = PRECIO_CONOCIDO.abiertas;
+  for (let i = 0; i < n; i++) {
+    await loteDePrecio(s, { activo: "SOL/USD", hace: a.entradaHace(i), precio: a.precio(i), regla: a.regla(i) });
+  }
+}
 
 const PAYLOADS = [
   "<script>alert('xss-1')</script>",
@@ -733,6 +876,89 @@ export const ESCENARIOS: Record<string, Escenario> = {
     const sol = await investigacion(s, { activo: "SOL/USD", hace: 30, resumen: PAYLOADS[2], fuentes: ["https://example.com/ok"] });
     const e = await ejecucion(s, { hace: 12, activos: { "BTC/USD": { resultado: "propuesta", inv: btc }, "SOL/USD": { resultado: "sin_senal", inv: sol } } });
     await ejecutada(s, e, "BTC/USD", { hace: 12 });
+  },
+
+  // ── S6 Precio (spec 002). Las horas son ahora − N min: no hace falta un reloj falso en el servidor. ──
+
+  // AC-1 a AC-3: 40 puntos de BTC/USD en 24 h con un hueco por datos no disponibles, otro por ranura sin ejecución y
+  // una vela evaluada dos veces; 10 puntos de SOL/USD en otra escala. Sin lotes.
+  "precio-serie": async (s) => {
+    const b = PRECIO_CONOCIDO.btc;
+    await serieDePrecio(s, { activo: "BTC/USD", total: b.total, ultimoHace: b.ultimoHace, sinEjecucion: b.sinEjecucion, sinDatos: b.sinDatos, duplicada: b.duplicada.slot });
+    await serieDePrecio(s, { activo: "SOL/USD", ...PRECIO_CONOCIDO.sol });
+  },
+
+  // AC-5, AC-6, AC-9, AC-10: sobre `precio-serie`, un lote cerrado por SL, uno por TP y uno abierto; y cuatro entradas que
+  // no abrieron posición (riesgo, broker, no enviada, desconocida) y no deben aparecer.
+  "precio-operaciones": async (s) => {
+    await ESCENARIOS["precio-serie"](s);
+    await operacionesDePrecio(s, false);
+  },
+
+  // AC-10: igual, pero el lote que estaba abierto ya tiene su cierre.
+  "precio-operaciones-cerrada": async (s) => {
+    await ESCENARIOS["precio-serie"](s);
+    await operacionesDePrecio(s, true);
+  },
+
+  // AC-8, AC-UX-10: puntos de 3 días; un lote abierto hace 26 h y cerrado hace 2 h.
+  "precio-fuera-de-rango": async (s) => {
+    await serieDePrecio(s, { activo: "BTC/USD", total: 144, ultimoHace: 10 });
+    const f = PRECIO_CONOCIDO.fueraDeRango;
+    await loteDePrecio(s, { activo: "BTC/USD", hace: f.entradaHace, precio: f.precio, regla: f.regla, cierre: { motivo: "take_profit", hace: f.salidaHace } });
+  },
+
+  // AC-11, AC-UX-8: 3 y 10 posiciones abiertas de SOL/USD con precios de entrada distintos (#1 = la más antigua).
+  "precio-abiertas-3": (s) => abiertasDePrecio(s, 3),
+  "precio-abiertas-10": (s) => abiertasDePrecio(s, 10),
+
+  // AC-UX-9: 48 entradas abiertas de BTC/USD en las últimas 24 h, una por vela.
+  "precio-48-entradas": async (s) => {
+    await serieDePrecio(s, { activo: "BTC/USD", total: 48, ultimoHace: 10 });
+    for (let i = 0; i < 48; i++) {
+      const precio = CIERRES_PRECIO["BTC/USD"].cierre(i + 20);
+      await loteDePrecio(s, { activo: "BTC/USD", hace: 10 + (47 - i) * 30, precio, regla: reglaDe(precio) });
+    }
+  },
+
+  // AC-7, AC-UX-11: 21 días de puntos y operaciones de hace 3 h, 3 días y 20 días (cerradas una hora después) más una abierta hace 5 h.
+  "precio-desde-s3": async (s) => {
+    await serieDePrecio(s, { activo: "BTC/USD", total: 1008, ultimoHace: 10 });
+    for (const o of PRECIO_CONOCIDO.desdeS3) {
+      await loteDePrecio(s, {
+        activo: "BTC/USD",
+        hace: o.entradaHace,
+        precio: o.precio,
+        regla: reglaDe(o.precio),
+        cierre: o.abierta ? undefined : { motivo: "take_profit", hace: o.entradaHace - 60 },
+      });
+    }
+  },
+
+  // AC-13: la vela del último punto cerró hace 46 min (aviso) o hace 44 (sin aviso).
+  "precio-atrasado-46": (s) => serieDePrecio(s, { activo: "BTC/USD", total: 48, ultimoHace: 46 }),
+  "precio-atrasado-44": (s) => serieDePrecio(s, { activo: "BTC/USD", total: 48, ultimoHace: 44 }),
+
+  // AC-15: la historia empezó hace 3 días.
+  "precio-historia-incompleta": (s) => serieDePrecio(s, { activo: "BTC/USD", total: 144, ultimoHace: 10 }),
+
+  // AC-UX-12, AC-UX-13: hay historia, pero nada en las últimas 24 h (puntos de hace 2 a 3 días).
+  "precio-fuera-del-rango-24h": (s) => serieDePrecio(s, { activo: "BTC/USD", total: 48, ultimoHace: 2 * 24 * 60 }),
+
+  // AC-19: 30 días de BTC/USD (1 440 puntos) y 50 operaciones: las 3 más recientes abiertas, el resto cerrada 5 h después.
+  "precio-30-dias": async (s) => {
+    await serieDePrecio(s, { activo: "BTC/USD", total: 1440, ultimoHace: 10 });
+    for (let i = 0; i < 50; i++) {
+      const precio = 100_100 + 7 * i;
+      const hace = 400 + 850 * i;
+      await loteDePrecio(s, {
+        activo: "BTC/USD",
+        hace,
+        precio,
+        regla: reglaDe(precio),
+        cierre: i < 3 ? undefined : { motivo: i % 2 ? "stop_loss" : "take_profit", hace: hace - 300 },
+      });
+    }
   },
 };
 
