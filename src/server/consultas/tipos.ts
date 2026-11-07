@@ -252,3 +252,79 @@ export type Metricas = {
   aprobadas: number;
   rechazadas: number;
 };
+
+// ───────────────────────────── S6 Precio (spec 002) ─────────────────────────────
+
+export const RANGOS = ["24h", "7d", "30d", "todo"] as const;
+export type Rango = (typeof RANGOS)[number];
+/** Duración de cada rango en ms; `todo` no tiene límite. */
+export const RANGO_MS: Record<Rango, number | null> = {
+  "24h": 24 * 3_600_000,
+  "7d": 7 * 24 * 3_600_000,
+  "30d": 30 * 24 * 3_600_000,
+  todo: null,
+};
+
+export type PuntoPrecio = {
+  evaluacionId: string;
+  /** Cierre de la vela (= ts_ultima_barra + 30 min). Es la x del punto (Q-10). */
+  t: string;
+  /** Inicio de la vela (ts_ultima_barra). */
+  inicioVela: string;
+  cierre: string; // foto.regla.resultado.close_ultimo
+  sma20: string; // foto.regla.resultado.sma20
+  cierrePrevio: string; // foto.regla.resultado.close_previo
+  resultado: "sin_senal" | "propuesta";
+  /** true si el punto anterior de la lista no está exactamente 30 min antes (REQ-4). */
+  hueco: boolean;
+};
+
+export type SeriePrecio = {
+  activo: Activo;
+  rango: Rango;
+  /** ahora − rango; null en "todo". */
+  desde: string | null;
+  hasta: string;
+  /** Cierre de vela del primer y del último punto del activo en TODA la historia; null si no hay ninguno. */
+  primerPunto: string | null;
+  ultimoPunto: string | null;
+  /** En el rango, deduplicados por vela y en orden ascendente. */
+  puntos: PuntoPrecio[];
+};
+
+export type OperacionGrafica = {
+  propuestaId: string;
+  /** #n entre las abiertas del activo (1 = la más antigua); null si está cerrada. */
+  numero: number | null;
+  entrada: {
+    t: string; // lotes.abierto_en
+    precio: string;
+    nocionalUsd: string;
+    cantidad: string;
+    /** null si la propuesta no es de la regla y no trae sus valores (R-3): la UI muestra "—". */
+    cierre: string | null;
+    cierrePrevio: string | null;
+    sma20: string | null; // propuestas.justificacion.resultado
+    enRango: boolean;
+  };
+  salida: null | {
+    t: string; // cierres_lote.cerrado_en
+    precio: string;
+    motivo: "take_profit" | "stop_loss";
+    /** stop_loss o take_profit del lote, según el motivo. */
+    nivel: string;
+    pnlNetoUsd: string;
+    pnlNetoPct: string;
+    duracionS: number;
+    enRango: boolean;
+  };
+  /** Solo si sigue abierta (REQ-13, REQ-15). */
+  niveles: null | { stopLoss: string; takeProfit: string };
+};
+
+export type OperacionesPrecio = {
+  /** Orden ascendente por entrada. */
+  filas: OperacionGrafica[];
+  /** Para el selector (REQ-16, Q-4). */
+  abiertasPorActivo: Record<Activo, number>;
+};

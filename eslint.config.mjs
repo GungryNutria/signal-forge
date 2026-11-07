@@ -49,6 +49,11 @@ const eslintConfig = defineConfig([
       { regex: "^(pg|drizzle-orm)(/|$)", message: "app accede a la base solo vía server/*." },
     ),
   },
+  // consultas de solo lectura: nunca tocan el broker (spec 002, AC-16).
+  {
+    files: ["src/server/consultas/**/*.ts"],
+    rules: restringir({ regex: "(^@/|/)server/broker(/|$)", message: "las consultas del dashboard no importan el broker." }),
+  },
   // Override default ignores of eslint-config-next.
   globalIgnores([
     // Default ignores of eslint-config-next:

@@ -23,6 +23,19 @@ const ESPERADOS = [
   "metricas-conocidas",
   "valores-extremos",
   "inyeccion",
+  "precio-serie",
+  "precio-operaciones",
+  "precio-operaciones-cerrada",
+  "precio-fuera-de-rango",
+  "precio-abiertas-3",
+  "precio-abiertas-10",
+  "precio-48-entradas",
+  "precio-desde-s3",
+  "precio-atrasado-46",
+  "precio-atrasado-44",
+  "precio-historia-incompleta",
+  "precio-fuera-del-rango-24h",
+  "precio-30-dias",
 ];
 
 let pool: Pool;

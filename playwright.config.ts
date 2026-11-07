@@ -44,5 +44,7 @@ export default defineConfig({
     iniciar(PUERTOS.fallaCartera, { SF_FALLA_INYECTADA: "resumenCartera" }),
     iniciar(PUERTOS.fallaMetricas, { SF_FALLA_INYECTADA: "metricas" }),
     iniciar(PUERTOS.fallaEjecuciones, { SF_FALLA_INYECTADA: "listarEjecuciones" }),
+    iniciar(PUERTOS.fallaSeriePrecio, { SF_FALLA_INYECTADA: "seriePrecio" }),
+    iniciar(PUERTOS.fallaOperacionesPrecio, { SF_FALLA_INYECTADA: "operacionesPrecio" }),
   ],
 });

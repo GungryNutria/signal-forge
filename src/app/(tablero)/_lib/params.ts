@@ -6,6 +6,7 @@ import type {
   FiltroPropuestas,
   ResultadoFiltroEjecuciones,
 } from "@/server/consultas/tipos";
+import { consultaDePrecio } from "./precio";
 
 // Filtros y cursor viajan en la URL (`searchParams`) y se validan aquí: lo que no esté en la lista se ignora.
 // Solo tipos de la consulta (sin `server-only`).
@@ -78,3 +79,7 @@ export function volverAEjecuciones(v: string | undefined): string {
 export const paramV = (p: Params): string | undefined => uno(p, "v");
 /** De dónde se llegó al detalle de una propuesta: solo "ejecuciones" cambia el enlace de regreso. */
 export const vienedeEjecuciones = (p: Params): boolean => uno(p, "de") === "ejecuciones";
+/** `?activo=…&rango=…&op=…` de la gráfica que se dejó, tomado de `?v=` y revalidado con `leerPrecio`. */
+export const volverAPrecio = (v: string | undefined): string => consultaDePrecio(v);
+/** Con `de=precio` el "← Volver" del detalle regresa a S6. */
+export const vienedePrecio = (p: Params): boolean => uno(p, "de") === "precio";

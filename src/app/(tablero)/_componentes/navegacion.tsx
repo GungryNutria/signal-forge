@@ -3,13 +3,14 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
-import { IconoEjecuciones, IconoMetricas, IconoPropuestas, IconoResumen } from "./iconos";
+import { IconoEjecuciones, IconoMetricas, IconoPrecio, IconoPropuestas, IconoResumen } from "./iconos";
 
 const DESTINOS: { href: string; etiqueta: string; icono: ReactNode }[] = [
   { href: "/", etiqueta: "Resumen", icono: <IconoResumen /> },
   { href: "/propuestas", etiqueta: "Propuestas", icono: <IconoPropuestas /> },
   { href: "/metricas", etiqueta: "Métricas", icono: <IconoMetricas /> },
   { href: "/ejecuciones", etiqueta: "Ejecuciones", icono: <IconoEjecuciones /> },
+  { href: "/precio", etiqueta: "Precio", icono: <IconoPrecio /> },
 ];
 
 const activa = (ruta: string, href: string) => (href === "/" ? ruta === "/" : ruta === href || ruta.startsWith(`${href}/`));
@@ -41,12 +42,12 @@ export function Pestanas() {
   );
 }
 
-/** Barra inferior de 4 destinos (< 768 px), fija al pie del viewport. Icono y texto siempre visibles. */
+/** Barra inferior de 5 destinos (< 768 px), fija al pie del viewport. Icono y texto siempre visibles. */
 export function BarraInferior() {
   const ruta = usePathname();
   return (
     <nav aria-label="Principal (móvil)" className="fixed inset-x-0 bottom-0 z-20 border-t border-line bg-surface md:hidden">
-      <ul className="grid h-14 grid-cols-4">
+      <ul className="grid h-14 grid-cols-5">
         {DESTINOS.map((d) => {
           const on = activa(ruta, d.href);
           return (

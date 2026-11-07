@@ -9,6 +9,7 @@ import { Chip } from "./chip";
 import { Barra, Cargando } from "./esqueleto";
 import { ChipOmitida, ChipResultado, esOmitida } from "./estados";
 import { IconoChevron } from "./iconos";
+import { BandaPlegable } from "./banda-plegable";
 import { Tarjeta } from "./tarjeta";
 
 const Etiqueta = ({ children }: { children: ReactNode }) => (
@@ -193,6 +194,44 @@ export async function Banda() {
         </ul>
       ) : null}
     </Tarjeta>
+  );
+}
+
+/**
+ * La banda de siempre; en S6 móvil va plegada tras una línea (D-5). Si algo de la banda completa está en aviso o error, la
+ * línea lo dice con el mismo color, icono y texto del estado más grave (nunca solo un punto de color).
+ */
+export async function BandaConResumen() {
+  const { ahora, datos: e } = await estado();
+  const lista = alertas(e, ahora);
+  const ult = e.ultimaEjecucion;
+  if (ult && !esOmitida(ult.estado) && (ult.estado === "error" || ACTIVOS.some((a) => ult.porActivo[a]?.resultado === "error"))) {
+    lista.push({ clave: "ejecucion-error", tono: "warn", contenido: "La última ejecución del ciclo terminó con error" });
+  }
+  for (const a of ACTIVOS) {
+    const inv = e.investigacionPorActivo[a];
+    if (inv && !inv.vigente && !inv.alerta) lista.push({ clave: `inv-vencida-${a}`, tono: "warn", contenido: `${a}: la investigación aceptada ya no está vigente` });
+  }
+  const [grave, ...resto] = lista;
+  return (
+    <BandaPlegable
+      linea={
+        <span className="flex min-w-0 flex-1 items-center justify-between gap-3">
+          <ChipModo modo={e.modo} />
+          <span className="text-sm">Datos de las {hora(ahora.toISOString())}</span>
+        </span>
+      }
+      avisos={
+        grave ? (
+          <ul aria-label="Alertas" className="mt-2 flex flex-col gap-2">
+            <Alerta tono={grave.tono}>{grave.contenido}</Alerta>
+            {resto.length > 0 ? <li className="px-1 text-xs text-muted">y {resto.length} {resto.length === 1 ? "aviso más" : "avisos más"} en la banda completa</li> : null}
+          </ul>
+        ) : null
+      }
+    >
+      <Banda />
+    </BandaPlegable>
   );
 }
 

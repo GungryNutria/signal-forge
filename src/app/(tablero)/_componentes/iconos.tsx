@@ -93,3 +93,17 @@ export const IconoEjecuciones = () =>
       <path d="M8 4.6V8l2.4 1.6" />
     </>,
   );
+export const IconoPrecio = () =>
+  nav(
+    <>
+      <path d="M2.5 2.5v11h11" />
+      <path d="M4.8 10.2l2.6-3.2 2.2 1.8 3.2-4" />
+    </>,
+  );
+/** Línea de precio de 18 px, para el enlace "Ver en la gráfica" de S3. */
+export const IconoGrafica = () => (
+  <Base tamano={18}>
+    <path d="M2.5 2.5v11h11" />
+    <path d="M4.8 10.2l2.6-3.2 2.2 1.8 3.2-4" />
+  </Base>
+);
