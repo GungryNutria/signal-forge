@@ -13,6 +13,7 @@ import {
   marcas,
   rangoQueIncluye,
   resumenSerie,
+  separarRotulos,
   ticksX,
   ticksY,
   tramos,
@@ -109,6 +110,19 @@ describe("colocarRotulos (AC-UX-8)", () => {
     const r = colocarRotulos(Array.from({ length: 20 }, (_, i) => ({ y: 100 + i * 3 })), 22);
     expect(r.reduce((s, g) => s + g.items.length, 0)).toBe(20);
     for (let i = 1; i < r.length; i++) expect(r[i].y - r[i - 1].y).toBeGreaterThanOrEqual(22);
+  });
+});
+
+describe("separarRotulos (AC-UX-8)", () => {
+  it("empuja los que se tocan y respeta el orden y los límites", () => {
+    const r = separarRotulos([100, 105, 110, 400], 22, 10, 420);
+    expect(r).toEqual([100, 122, 144, 400]);
+  });
+  it("se queda dentro del área aunque se amontonen al final", () => {
+    const r = separarRotulos([410, 412, 414], 22, 10, 420);
+    expect(Math.max(...r)).toBeLessThanOrEqual(420);
+    expect(r[1] - r[0]).toBeGreaterThanOrEqual(22);
+    expect(r[2] - r[1]).toBeGreaterThanOrEqual(22);
   });
 });
 

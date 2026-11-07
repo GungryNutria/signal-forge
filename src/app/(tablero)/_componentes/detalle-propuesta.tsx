@@ -18,12 +18,14 @@ import {
   usdConSigno,
   valorRegla,
 } from "../_lib/formato";
-import { paramV, vienedeEjecuciones, volverAEjecuciones, volverAPropuestas, type Params } from "../_lib/params";
+import { esActivo } from "@/core/activos";
+import { paramV, vienedeEjecuciones, vienedePrecio, volverAEjecuciones, volverAPrecio, volverAPropuestas, type Params } from "../_lib/params";
+import { hrefPrecio, rangoQueIncluye } from "../_lib/precio";
 import { Alerta } from "./alerta";
 import { Barra, Cargando } from "./esqueleto";
 import { ChipDecision, ChipOperacion } from "./estados";
 import { Chip } from "./chip";
-import { IconoChevron } from "./iconos";
+import { IconoChevron, IconoGrafica } from "./iconos";
 import { InvestigacionAdjunta } from "./investigacion-adjunta";
 import { leerResultado, ReglaEntrada } from "./regla-entrada";
 import { Tarjeta, TituloBloque } from "./tarjeta";
@@ -59,7 +61,26 @@ function tamano(d: DetallePropuesta): string {
   return [cantidad, nocional].filter(Boolean).join(" · ") || "—";
 }
 
-function Cabecera({ d }: { d: DetallePropuesta }) {
+/** REQ-19: solo si la operación abrió posición (hay lote). Lleva a S6 con el rango más corto que la incluye. */
+function VerEnGrafica({ d, ahora }: { d: DetallePropuesta; ahora: Date }) {
+  if (!d.lote || !esActivo(d.activo)) return null;
+  const href = hrefPrecio({ activo: d.activo, rango: rangoQueIncluye(d.lote.abiertoEn, ahora), op: d.id, de: "propuesta" });
+  return (
+    <div className="mt-4 flex flex-col gap-2">
+      <Link
+        href={href}
+        className="inline-flex min-h-11 w-full items-center gap-2 rounded-sm border-[1.5px] border-accent px-3 text-sm font-semibold text-accent"
+      >
+        <IconoGrafica />
+        <span className="flex-1">Ver en la gráfica</span>
+        <IconoChevron />
+      </Link>
+      <p className="text-xs text-muted">Abre {d.activo} en el rango más corto que incluye esta operación, con la entrada consultada.</p>
+    </div>
+  );
+}
+
+function Cabecera({ d, ahora }: { d: DetallePropuesta; ahora: Date }) {
   const titulo = d.activo ? `${d.activo} · ${LADO[d.lado ?? ""] ?? "—"} · ${tamano(d)}` : "Propuesta inválida";
   return (
     <Tarjeta>
@@ -74,6 +95,7 @@ function Cabecera({ d }: { d: DetallePropuesta }) {
         <Dato etiqueta="Tamaño">{tamano(d)}</Dato>
         <Dato etiqueta="Hora">{hora(d.recibidaEn)}</Dato>
       </Datos>
+      <VerEnGrafica d={d} ahora={ahora} />
     </Tarjeta>
   );
 }
@@ -280,17 +302,18 @@ export async function DetallePropuestaVista({ params, searchParams }: { params: 
   const sp = await searchParams;
   const v = paramV(sp);
   const deEjecuciones = vienedeEjecuciones(sp);
-  const { datos: d } = await conHora(() => detallePropuesta(id))();
+  const dePrecio = vienedePrecio(sp);
+  const { ahora, datos: d } = await conHora(() => detallePropuesta(id))();
   if (d === null) notFound();
 
   const regla = typeof d.reglaEntrada === "object" && d.reglaEntrada !== null ? (d.reglaEntrada as Record<string, unknown>) : null;
   return (
     <div className="flex flex-col gap-6">
       <Volver
-        href={deEjecuciones ? `/ejecuciones${volverAEjecuciones(v)}` : `/propuestas${volverAPropuestas(v)}`}
-        texto={deEjecuciones ? "Ejecuciones" : "Propuestas"}
+        href={dePrecio ? `/precio${volverAPrecio(v)}` : deEjecuciones ? `/ejecuciones${volverAEjecuciones(v)}` : `/propuestas${volverAPropuestas(v)}`}
+        texto={dePrecio ? "Precio" : deEjecuciones ? "Ejecuciones" : "Propuestas"}
       />
-      <Cabecera d={d} />
+      <Cabecera d={d} ahora={ahora} />
       <ReglaEntrada
         version={d.versionRegla}
         resultado={leerResultado(regla?.resultado)}

@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import { Pool } from "pg";
 import { BASE, CREDENCIALES, precioConocido, PUERTOS, SIN_BASE, sembrar, url } from "./ayuda";
 
 // S6 Precio (spec 002), parte de página y estados (T-4): AC-12 a 15, AC-UX-7, 10, 12 a 15 y AC-UX-17 (sin escritura).
@@ -427,5 +428,117 @@ test.describe("gráfica: marcadores, niveles y consulta de operaciones", () => {
     await grafica(page).focus();
     await page.keyboard.press("Enter");
     await expect(panel(page).getByRole("link").first()).toBeFocused();
+  });
+});
+
+// ───────────────────────────── Navegación y S3 (T-6) ─────────────────────────────
+
+test.describe("navegación y ida y vuelta con S3", () => {
+  test("AC-UX-2 y AC-UX-16: Precio es el quinto destino, en las pestañas y en la barra inferior de 5", async ({ page }) => {
+    sembrar("precio-serie");
+    await page.goto("/");
+    await page.getByRole("navigation", { name: "Principal" }).getByRole("link", { name: "Precio" }).click();
+    await expect(page).toHaveURL(/\/precio$/);
+    await expect(page.getByRole("navigation", { name: "Principal" }).getByRole("link", { name: "Precio" })).toHaveAttribute("aria-current", "page");
+    const textos = await page.getByRole("navigation", { name: "Principal" }).getByRole("link").allTextContents();
+    expect(textos.map((t) => t.trim())).toEqual(["Resumen", "Propuestas", "Métricas", "Ejecuciones", "Precio"]);
+  });
+
+  test("AC-UX-16: a 360 px la barra inferior muestra los 5 destinos con su texto completo y 44 px como mínimo", async ({ browser }) => {
+    sembrar("precio-serie");
+    const ctx = await browser.newContext({ httpCredentials: CREDENCIALES, viewport: { width: 360, height: 800 } });
+    const page = await ctx.newPage();
+    await page.goto(`${url(PUERTOS.normal)}/precio`);
+    const barra = page.getByRole("navigation", { name: "Principal (móvil)" });
+    const enlaces = barra.getByRole("link");
+    await expect(enlaces).toHaveCount(5);
+    for (const e of await enlaces.all()) {
+      const b = (await e.boundingBox())!;
+      expect(b.width).toBeGreaterThanOrEqual(44);
+      expect(b.height).toBeGreaterThanOrEqual(44);
+      // El texto no se corta: ningún elemento del enlace desborda su caja.
+      const corta = await e.evaluate((el) => [...el.querySelectorAll("*")].some((x) => x.scrollWidth > x.clientWidth + 1) || el.scrollWidth > el.clientWidth + 1);
+      expect(corta).toBe(false);
+    }
+    expect((await enlaces.allTextContents()).map((t) => t.trim())).toEqual(["Resumen", "Propuestas", "Métricas", "Ejecuciones", "Precio"]);
+    const a = await page.evaluate(() => ({ s: document.documentElement.scrollWidth, c: document.documentElement.clientWidth }));
+    expect(a.s).toBeLessThanOrEqual(a.c);
+    await ctx.close();
+  });
+
+  test("AC-7 y AC-UX-11: desde S3 'Ver en la gráfica' abre S6 con el rango más corto que incluye la operación, destacada y consultada, y vuelve", async ({ page }) => {
+    sembrar("precio-desde-s3");
+    await page.goto("/precio?activo=BTC%2FUSD&rango=todo");
+    await lista(page);
+    const filas = page.locator("li[data-marca^='e:']");
+    await expect(filas).toHaveCount(K.desdeS3.length);
+    const ids = new Map<number, string>();
+    for (const o of K.desdeS3) ids.set(o.precio, (await filas.filter({ hasText: usd(o.precio) }).getAttribute("data-marca"))!.slice(2));
+    for (const o of K.desdeS3) {
+      const id = ids.get(o.precio)!;
+      await page.goto(`/propuestas/${id}`);
+      const enlace = page.getByRole("link", { name: "Ver en la gráfica" });
+      await expect(enlace).toBeVisible();
+      await expect(enlace).toHaveAttribute("href", `/precio?activo=BTC%2FUSD&rango=${o.rango}&op=${id}&de=propuesta`);
+      await enlace.click(); // 1 toque
+      await expect(page).toHaveURL(new RegExp(`rango=${o.rango}&op=${id}&de=propuesta`));
+      await lista(page);
+      await expect(page.getByRole("navigation", { name: "Rango" }).getByRole("link", { name: o.rango === "24h" ? "24 h" : o.rango === "7d" ? "7 días" : "30 días" })).toHaveAttribute("aria-current", "true");
+      await expect(panel(page).getByRole("heading", { name: /^Entrada/ })).toBeVisible();
+      await expect(panel(page)).toContainText(usd(o.precio));
+      await expect(grafica(page)).toBeFocused();
+      // "← Volver" lleva a S3.
+      await page.getByRole("link", { name: "Propuesta", exact: true }).click();
+      await expect(page).toHaveURL(new RegExp(`/propuestas/${id}$`));
+    }
+  });
+
+  test("AC-12 y AC-UX-11: de S6 a S3 y de vuelta con 'Volver' se conservan activo, rango y operación, con el foco en la gráfica", async ({ page }) => {
+    sembrar("precio-desde-s3");
+    await page.goto("/precio?activo=BTC%2FUSD&rango=7d");
+    await lista(page);
+    await page.getByRole("link", { name: /Ver operación/ }).first().click();
+    await expect(page).toHaveURL(/de=precio&v=/);
+    await page.locator("main").getByRole("link", { name: "Precio", exact: true }).click();
+    await expect(page).toHaveURL(/\/precio\?activo=BTC%2FUSD&rango=7d&op=[0-9a-f-]{36}$/);
+    await lista(page);
+    await expect(page.getByRole("navigation", { name: "Rango" }).getByRole("link", { name: "7 días" })).toHaveAttribute("aria-current", "true");
+    await expect(grafica(page)).toBeFocused();
+    await expect(panel(page).getByRole("heading", { name: /^(Entrada|Stop loss|Take profit)/ })).toBeVisible();
+  });
+
+  test("REQ-12: 'Ver en la gráfica' no aparece en propuestas que no abrieron posición", async ({ page }) => {
+    sembrar("precio-operaciones");
+    const pool = new Pool({ connectionString: BASE, max: 1 });
+    try {
+      const { rows } = await pool.query("SELECT p.id FROM propuestas p LEFT JOIN lotes l ON l.propuesta_id = p.id WHERE l.id IS NULL");
+      expect(rows.length).toBe(4);
+      for (const r of rows) {
+        await page.goto(`/propuestas/${r.id}`);
+        await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+        await expect(page.getByRole("link", { name: "Ver en la gráfica" })).toHaveCount(0);
+      }
+    } finally {
+      await pool.end();
+    }
+  });
+
+  test("D-5: en S6 móvil la banda va plegada tras una línea que despliega la banda completa, y en otras superficies sigue completa", async ({ browser }) => {
+    sembrar("precio-operaciones");
+    const ctx = await browser.newContext({ httpCredentials: CREDENCIALES, viewport: { width: 390, height: 844 } });
+    const page = await ctx.newPage();
+    await page.goto(`${url(PUERTOS.normal)}/precio`);
+    const linea = page.getByRole("button", { name: /Operando.*Datos de las \d{2}:\d{2} \(UTC−6\)/ });
+    await expect(linea).toHaveAttribute("aria-expanded", "false");
+    await expect(page.getByText("Última ejecución", { exact: true })).toBeHidden();
+    // El estado más grave se dice en la línea con texto (aquí hay avisos en la banda completa).
+    await expect(page.getByRole("list", { name: "Alertas" }).first()).toBeVisible();
+    await linea.click();
+    await expect(linea).toHaveAttribute("aria-expanded", "true");
+    await expect(page.getByText("Última ejecución", { exact: true })).toBeVisible();
+    await page.goto(`${url(PUERTOS.normal)}/propuestas`);
+    await expect(page.getByText("Última ejecución", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: /Datos de las/ })).toHaveCount(0);
+    await ctx.close();
   });
 });

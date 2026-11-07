@@ -2,7 +2,9 @@ import type { Metadata } from "next";
 import { Suspense } from "react";
 import { BloqueConError } from "../_componentes/bloque";
 import { Volver } from "../_componentes/detalle-propuesta";
-import { EsqueletoZona, PrecioCargando, Selectores, SelectoresConConteo, ZonaPrecio } from "../_componentes/precio-vista";
+import { EsperaProvider, ZonaEnEspera } from "../_componentes/precio-espera";
+import { EsqueletoZona, PrecioCargando } from "../_componentes/precio-esqueleto";
+import { Selectores, SelectoresConConteo, ZonaPrecio } from "../_componentes/precio-vista";
 import { leerPrecio } from "../_lib/precio";
 
 export const metadata: Metadata = { title: "Precio" };
@@ -31,19 +33,23 @@ async function Contenido({ searchParams }: { searchParams: Promise<Record<string
   const v = leerPrecio(await searchParams);
   const clave = `${v.activo}|${v.rango}`;
   return (
-    <>
+    <EsperaProvider>
       {v.de === "propuesta" && v.op ? <Volver href={`/propuestas/${v.op}`} texto="Propuesta" /> : null}
-      <h1 className="text-2xl leading-[1.25] font-semibold">Precio</h1>
-      <BloqueConError nombre="las opciones de activo y rango">
-        <Suspense key={clave} fallback={<Selectores v={v} conteo={null} />}>
-          <SelectoresConConteo v={v} />
-        </Suspense>
-      </BloqueConError>
-      <BloqueConError nombre={`la gráfica de precio de ${v.activo}`} cubre>
-        <Suspense key={clave} fallback={<EsqueletoZona activo={v.activo} rango={v.rango} />}>
-          <ZonaPrecio v={v} />
-        </Suspense>
-      </BloqueConError>
-    </>
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:gap-8">
+        <h1 className="text-2xl leading-[1.25] font-semibold">Precio</h1>
+        <BloqueConError nombre="las opciones de activo y rango">
+          <Suspense key={clave} fallback={<Selectores v={v} conteo={null} />}>
+            <SelectoresConConteo v={v} />
+          </Suspense>
+        </BloqueConError>
+      </div>
+      <ZonaEnEspera>
+        <BloqueConError nombre={`la gráfica de precio de ${v.activo}`} cubre>
+          <Suspense key={clave} fallback={<EsqueletoZona activo={v.activo} rango={v.rango} />}>
+            <ZonaPrecio v={v} />
+          </Suspense>
+        </BloqueConError>
+      </ZonaEnEspera>
+    </EsperaProvider>
   );
 }

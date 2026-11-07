@@ -1,10 +1,10 @@
 import Link from "next/link";
 import { Suspense } from "react";
-import { Banda, BandaEsqueleto } from "./_componentes/banda";
+import { BandaConResumen, BandaEsqueleto } from "./_componentes/banda";
 import { BloqueConError } from "./_componentes/bloque";
 import { BarraInferior, Pestanas } from "./_componentes/navegacion";
 
-// Cabecera de 56 px (marca, "Paper", navegación), banda de estado y, en móvil, barra inferior de 4 destinos.
+// Cabecera de 56 px (marca, "Paper", navegación), banda de estado y, en móvil, barra inferior de 5 destinos.
 // Cabecera fija siempre; la banda fija solo en escritorio (DESIGN.md > Layout). La banda va en su propio
 // `<Suspense>` con su propio error: el resto de la página no depende de ella.
 export default function TableroLayout({ children }: LayoutProps<"/">) {
@@ -34,7 +34,7 @@ export default function TableroLayout({ children }: LayoutProps<"/">) {
         <div className="sticky top-14 z-20 bg-bg py-4 max-lg:static">
           <BloqueConError nombre="la banda de estado">
             <Suspense fallback={<BandaEsqueleto />}>
-              <Banda />
+              <BandaConResumen />
             </Suspense>
           </BloqueConError>
         </div>

@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { connection } from "next/server";
 import { cache, type ReactNode } from "react";
 import { ACTIVOS, type Activo } from "@/core/activos";
@@ -8,8 +7,8 @@ import type { OperacionesPrecio, Rango, SeriePrecio } from "@/server/consultas/t
 import { dia, diaYHora, hora, horaCorta, minutosDesde, relativo, zona } from "../_lib/formato";
 import { FRASE_RANGO, hrefPrecio, NOMBRE_RANGO, RANGOS, type ValoresPrecio } from "../_lib/precio";
 import { Alerta } from "./alerta";
-import { Barra } from "./esqueleto";
 import { GraficaPrecio } from "./grafica-precio";
+import { EnlaceSeleccion } from "./precio-espera";
 import { AlternativaTexto } from "./precio-texto";
 import { Tarjeta } from "./tarjeta";
 
@@ -36,29 +35,19 @@ export function Selectores({ v, conteo }: { v: ValoresPrecio; conteo: Record<Act
       on ? "border-accent bg-accent text-bg" : "border-strong text-ink hover:bg-sunken"
     }`;
   return (
-    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between md:gap-6">
+    <div className="flex flex-col gap-3 md:flex-1 md:flex-row md:items-center md:justify-between md:gap-6">
       <nav aria-label="Activo" className="flex gap-2 md:gap-2">
         {ACTIVOS.map((a) => (
-          <Link
-            key={a}
-            href={hrefPrecio({ activo: a, rango: v.rango })}
-            aria-current={a === v.activo ? "true" : undefined}
-            className={chip(a === v.activo)}
-          >
+          <EnlaceSeleccion key={a} href={hrefPrecio({ activo: a, rango: v.rango })} activo={a} rango={v.rango} actual={a === v.activo} className={chip(a === v.activo)}>
             {conteo ? `${a} · ${abiertas(conteo[a])}` : a}
-          </Link>
+          </EnlaceSeleccion>
         ))}
       </nav>
       <nav aria-label="Rango" className="flex gap-1.5 md:gap-2">
         {RANGOS.map((r) => (
-          <Link
-            key={r}
-            href={hrefPrecio({ activo: v.activo, rango: r })}
-            aria-current={r === v.rango ? "true" : undefined}
-            className={chip(r === v.rango)}
-          >
+          <EnlaceSeleccion key={r} href={hrefPrecio({ activo: v.activo, rango: r })} activo={v.activo} rango={r} actual={r === v.rango} className={chip(r === v.rango)}>
             {NOMBRE_RANGO[r]}
-          </Link>
+          </EnlaceSeleccion>
         ))}
       </nav>
     </div>
@@ -151,36 +140,5 @@ export async function ZonaPrecio({ v }: { v: ValoresPrecio }) {
       </Tarjeta>
       <AlternativaTexto serie={serie} operaciones={operaciones} op={v.op} ahora={ahora} />
     </>
-  );
-}
-
-// ───────────────────────────── Carga ─────────────────────────────
-
-/** Esqueleto `sunken` con la forma de la gráfica y de la alternativa en texto: sin cifras ni ejes (RNF-4). */
-export function EsqueletoZona({ activo, rango }: { activo: Activo; rango: Rango }) {
-  return (
-    <Tarjeta>
-      <div role="status" aria-busy="true" className="flex flex-col gap-3">
-        <p className="text-xl leading-[1.3] font-semibold">
-          Cargando {activo} · {NOMBRE_RANGO[rango]}
-        </p>
-        <Barra alto="h-[260px]" />
-        <Barra ancho="w-2/5" />
-        <Barra ancho="w-1/3" />
-        <Barra ancho="w-1/5" />
-      </div>
-    </Tarjeta>
-  );
-}
-
-export function PrecioCargando() {
-  return (
-    <Tarjeta>
-      <div role="status" aria-busy="true" className="flex flex-col gap-3">
-        <p className="text-xl leading-[1.3] font-semibold">Cargando precio</p>
-        <Barra alto="h-[260px]" />
-        <Barra ancho="w-2/5" />
-      </div>
-    </Tarjeta>
   );
 }

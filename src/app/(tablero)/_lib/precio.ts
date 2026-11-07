@@ -174,6 +174,22 @@ export function colocarRotulos<T extends { y: number }>(niveles: T[], alto: numb
   return grupos.map((g) => ({ x: 0, ...g }));
 }
 
+/**
+ * Último paso de los rótulos (AC-UX-8): ya agrupados por tipo, los que aún quedan a menos de `alto` px (un stop loss
+ * frente a un take profit) se empujan hacia abajo y, si se pasan de `max`, se vuelven a subir. Devuelve las `y` nuevas
+ * en el mismo orden que `ys`. Un rótulo agrupado es aproximado por definición: lo exacto está en la consulta y en el texto.
+ */
+export function separarRotulos(ys: number[], alto: number, min: number, max: number): number[] {
+  const orden = ys.map((y, i) => ({ y, i })).sort((a, b) => a.y - b.y);
+  orden.forEach((o, k) => {
+    o.y = Math.max(o.y, k === 0 ? min : orden[k - 1].y + alto);
+  });
+  for (let k = orden.length - 1; k >= 0; k--) orden[k].y = Math.min(orden[k].y, k === orden.length - 1 ? max : orden[k + 1].y - alto);
+  const salida: number[] = [];
+  for (const o of orden) salida[o.i] = o.y;
+  return salida;
+}
+
 // ───────────────────────────── Ejes ─────────────────────────────
 
 /** Marcas "bonitas" de un eje numérico: entre `n` y `n + 3` valores dentro de [min, max]. */

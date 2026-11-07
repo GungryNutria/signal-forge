@@ -8,6 +8,7 @@ import { usd, zona } from "../_lib/formato";
 import {
   agruparMarcadores,
   colocarRotulos,
+  separarRotulos,
   hrefOperacion,
   type Marca,
   marcas as construirMarcas,
@@ -118,10 +119,17 @@ export function GraficaPrecio({
   const grupos = useMemo(() => agruparMarcadores(colocadas, UMBRAL_PX), [colocadas]);
 
   // ── consulta ──
-  const [consulta, setConsulta] = useState<Consulta | null>(() => {
-    const m = op ? (lista.find((x) => x.clave === `e:${op}`) ?? lista.find((x) => x.clave === `s:${op}`)) : undefined;
+  const deOperacion = (o: string | null): Consulta | null => {
+    const m = o ? (lista.find((x) => x.clave === `e:${o}`) ?? lista.find((x) => x.clave === `s:${o}`)) : undefined;
     return m ? { k: "marcas", claves: [m.clave] } : null;
-  });
+  };
+  const [consulta, setConsulta] = useState<Consulta | null>(() => deOperacion(op));
+  // Next conserva el estado de una pantalla a la que se vuelve (`cacheComponents`): si `op` cambia (volver de S3), se reconsulta.
+  const [opVista, setOpVista] = useState(op);
+  if (op !== opVista) {
+    setOpVista(op);
+    setConsulta(deOperacion(op));
+  }
 
   useEffect(() => {
     if (op) marco.current?.focus({ preventScroll: true });
@@ -253,7 +261,7 @@ export function GraficaPrecio({
       { tipo: "take_profit" as const, f, valor: Number(f.niveles!.takeProfit), texto: f.niveles!.takeProfit, y: Y(Number(f.niveles!.takeProfit)) },
     ]);
     // Los stop loss y los take profit se agrupan por separado: un rótulo mixto no cabría en 360 px.
-    return (["stop_loss", "take_profit"] as const).flatMap((tipo) =>
+    const grupos = (["stop_loss", "take_profit"] as const).flatMap((tipo) =>
       colocarRotulos(niveles.filter((n) => n.tipo === tipo), ALTO_ROTULO).map((g) => {
         const color = tipo === "stop_loss" ? "var(--color-neg)" : "var(--color-pos)";
         let texto: string;
@@ -267,6 +275,9 @@ export function GraficaPrecio({
         return { y: g.y, texto, color };
       }),
     );
+    // Un stop loss y un take profit pueden caer a la misma altura: se separan para que ningún rótulo toque a otro.
+    const ys = separarRotulos(grupos.map((g) => g.y), ALTO_ROTULO, area.top + 10, area.top + area.height - 10);
+    return grupos.map((g, i) => ({ ...g, y: ys[i] }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [area, abiertas, x0, x1, y0, y1, movil, hayDestacada, claveDestacada]);
 
