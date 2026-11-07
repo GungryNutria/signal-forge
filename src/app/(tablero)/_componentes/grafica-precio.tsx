@@ -4,11 +4,12 @@ import { useRouter } from "next/navigation";
 import { type KeyboardEvent, type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import { CartesianGrid, ComposedChart, Line, usePlotArea, XAxis, YAxis } from "recharts";
 import type { OperacionesPrecio, SeriePrecio } from "@/server/consultas/tipos";
-import { usd, zona } from "../_lib/formato";
+import { zona } from "../_lib/formato";
 import {
   agruparMarcadores,
   colocarRotulos,
   separarRotulos,
+  textoRotulo,
   hrefOperacion,
   type Marca,
   marcas as construirMarcas,
@@ -25,6 +26,8 @@ import { PanelConsulta, type Seleccion } from "./precio-panel";
 // toque y teclado) es estado propio: no hay `Tooltip` ni capa de accesibilidad de Recharts (una sola parada de Tab).
 const UMBRAL_PX = 20; // T-2: distancia entre centros para agrupar; el marcador mide ~16 px
 const ALTO_ROTULO = 22;
+const ALTO_ROTULO_CANALETA = 36; // una o dos líneas, con aire
+const CANALETA = 168; // C-2: columna de rótulos a la derecha del plano (escritorio)
 const MARGEN = { top: 16, right: 12, bottom: 22, left: 0 };
 const ALTO_EJE_X = 24;
 const EJE = { fill: "var(--color-muted)", fontSize: 12 };
@@ -77,6 +80,8 @@ export function GraficaPrecio({
   const alto = ancho >= 600 ? 380 : 300;
   const anchoEjeY = ancho < 480 ? 52 : 64;
   const movil = ancho < 480;
+  const canaleta = ancho >= 560;
+  const margen = { ...MARGEN, right: MARGEN.right + (canaleta ? CANALETA : 0) };
 
   // ── datos ──
   const puntos = useMemo(() => serie.puntos.map((p, i) => ({ ...p, i, ms: new Date(p.t).getTime(), c: Number(p.cierre), s: Number(p.sma20) })), [serie.puntos]);
@@ -88,12 +93,13 @@ export function GraficaPrecio({
     const primer = new Date(serie.primerPunto ?? serie.puntos[0].t).getTime();
     let x0 = serie.desde ? Math.max(new Date(serie.desde).getTime(), primer) : primer;
     for (const m of lista) x0 = Math.min(x0, new Date(m.t).getTime());
+    // C-1 (revoca D-6): el eje cubre el cierre, la SMA20 y los marcadores, con 3 % de margen. Un nivel fuera del eje
+    // no lleva línea: su rótulo se fija al borde con una flecha.
     const valores = [...puntos.flatMap((p) => [p.c, p.s]), ...lista.map((m) => Number(m.precio))];
-    for (const f of abiertas) valores.push(Number(f.niveles!.stopLoss), Number(f.niveles!.takeProfit));
     const [min, max] = [Math.min(...valores), Math.max(...valores)];
-    const pad = (max - min || 1) * 0.03; // D-6: la serie y los niveles de las abiertas, con 3 % de margen
+    const pad = (max - min || 1) * 0.03;
     return { x0, x1, y0: min - pad, y1: max + pad };
-  }, [serie, puntos, lista, abiertas]);
+  }, [serie, puntos, lista]);
 
   const datos = useMemo(() => {
     const filas: { t: number; cierre: number | null; sma20: number | null }[] = [];
@@ -105,9 +111,9 @@ export function GraficaPrecio({
   }, [serie.puntos]);
 
   const marcasX = useMemo(() => {
-    const plano = Math.max(1, ancho - anchoEjeY - MARGEN.right);
+    const plano = Math.max(1, ancho - anchoEjeY - margen.right);
     return ticksX(x0, x1, serie.rango, plano).filter((m) => ((x1 - m.t) / (x1 - x0)) * plano > 46);
-  }, [x0, x1, serie.rango, ancho, anchoEjeY]);
+  }, [x0, x1, serie.rango, ancho, anchoEjeY, margen.right]);
   const etiquetaX = useMemo(() => new Map(marcasX.map((m) => [m.t, m.etiqueta])), [marcasX]);
   const marcasY = useMemo(() => ticksY(y0, y1, movil ? 4 : 5), [y0, y1, movil]);
 
@@ -253,38 +259,67 @@ export function GraficaPrecio({
     e.preventDefault();
   };
 
-  // ── rótulos de nivel (AC-UX-8) ──
-  const rotulos = useMemo(() => {
-    if (!area) return [];
-    const niveles = abiertas.flatMap((f) => [
-      { tipo: "stop_loss" as const, f, valor: Number(f.niveles!.stopLoss), texto: f.niveles!.stopLoss, y: Y(Number(f.niveles!.stopLoss)) },
-      { tipo: "take_profit" as const, f, valor: Number(f.niveles!.takeProfit), texto: f.niveles!.takeProfit, y: Y(Number(f.niveles!.takeProfit)) },
-    ]);
-    // Los stop loss y los take profit se agrupan por separado: un rótulo mixto no cabría en 360 px.
-    const grupos = (["stop_loss", "take_profit"] as const).flatMap((tipo) =>
-      colocarRotulos(niveles.filter((n) => n.tipo === tipo), ALTO_ROTULO).map((g) => {
-        const color = tipo === "stop_loss" ? "var(--color-neg)" : "var(--color-pos)";
-        let texto: string;
-        if (g.items.length === 1) {
-          texto = `${tipo === "stop_loss" ? "SL" : "TP"} #${g.items[0].f.numero} · ${usd(g.items[0].texto)}`;
-        } else {
-          const vs = g.items.map((i) => i.valor).sort((a, b) => a - b);
-          const lista = movil ? "" : ` (${g.items.map((i) => `#${i.f.numero}`).sort().join(", ")})`;
-          texto = `${g.items.length} ${tipo === "stop_loss" ? "stop loss" : "take profit"}${lista}: ${usd(vs[0])} a ${usd(vs[vs.length - 1])}`;
-        }
-        return { y: g.y, texto, color };
+  // ── rótulos de nivel (AC-UX-8, C-2) ──
+  // Escritorio: columna de 168 px a la derecha del plano, nunca sobre los datos. Móvil: en el plano, y si hay más de 4 o
+  // alguno tocaría un marcador, solo los de la posición consultada o destacada, con una línea que explica el resto.
+  type Rotulo = { y: number; lineas: string[]; color: string; h: number; w: number };
+  const { rotulos, ocultos } = useMemo(() => {
+    if (!area) return { rotulos: [] as Rotulo[], ocultos: false };
+    const niveles = abiertas.flatMap((f) =>
+      (["stop_loss", "take_profit"] as const).map((tipo) => {
+        const valor = Number(tipo === "stop_loss" ? f.niveles!.stopLoss : f.niveles!.takeProfit);
+        const fuera = valor > y1 ? ("↑" as const) : valor < y0 ? ("↓" as const) : null;
+        const y = fuera === "↑" ? area.top + 10 : fuera === "↓" ? area.top + area.height - 10 : Y(valor);
+        return { tipo, f, valor, fuera, y };
       }),
     );
-    // Un stop loss y un take profit pueden caer a la misma altura: se separan para que ningún rótulo toque a otro.
-    const ys = separarRotulos(grupos.map((g) => g.y), ALTO_ROTULO, area.top + 10, area.top + area.height - 10);
-    return grupos.map((g, i) => ({ ...g, y: ys[i] }));
+    const construir = (lista: typeof niveles): Rotulo[] => {
+      const alto = canaleta ? ALTO_ROTULO_CANALETA : ALTO_ROTULO;
+      const gs = (["stop_loss", "take_profit"] as const).flatMap((tipo) =>
+        colocarRotulos(lista.filter((n) => n.tipo === tipo), alto).map((g) => {
+          const flecha = g.items.every((i) => i.fuera === "↑") ? "↑" : g.items.every((i) => i.fuera === "↓") ? "↓" : null;
+          const lineas = textoRotulo({ tipo, numeros: g.items.map((i) => i.f.numero ?? 0), valores: g.items.map((i) => i.valor), flecha, canaleta });
+          const w = canaleta ? CANALETA - 8 : Math.min(Math.max(...lineas.map((l) => l.length)) * 6.4 + 10, area.width);
+          return { y: g.y, lineas, color: tipo === "stop_loss" ? "var(--color-neg)" : "var(--color-pos)", h: lineas.length === 1 ? 20 : 34, w };
+        }),
+      );
+      // Un stop loss y un take profit pueden caer a la misma altura: se separan para que ningún rótulo toque a otro.
+      const ys = separarRotulos(gs.map((g) => g.y), alto, area.top + alto / 2, area.top + area.height - alto / 2);
+      return gs.map((g, i) => ({ ...g, y: ys[i] }));
+    };
+    let items = construir(niveles);
+    let ocultos = false;
+    if (!canaleta) {
+      const xr = area.left + area.width - 4;
+      const chocaConMarcador = items.some((r) =>
+        // La caja de un marcador incluye su "#n" (22 px sobre el centro) y sus 16 px de ancho.
+        grupos.some((g) => g.x + 16 > xr - r.w && g.x - 16 < xr && g.y + 10 > r.y - r.h / 2 && g.y - 22 < r.y + r.h / 2),
+      );
+      if (items.length > 4 || chocaConMarcador) {
+        ocultos = true;
+        items = claveDestacada ? construir(niveles.filter((n) => n.f.propuestaId === claveDestacada)) : [];
+      }
+    }
+    return { rotulos: items, ocultos };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [area, abiertas, x0, x1, y0, y1, movil, hayDestacada, claveDestacada]);
+  }, [area, abiertas, x0, x1, y0, y1, canaleta, grupos, claveDestacada]);
 
   const hayDatos = ancho > 0;
   const ultimo = puntos[puntos.length - 1];
   const primero = puntos[0];
   const cierreSobreSma = primero.c >= primero.s;
+  /** C-4: los rótulos directos se acotan al área de datos, 14 px por encima del eje X como mínimo. */
+  const etiquetasLineas = (() => {
+    if (!area) return { c: 0, s: 0 };
+    const acota = (y: number) => Math.min(Math.max(y, area.top + 12), area.top + area.height - 14);
+    let c = acota(Y(primero.c) + (cierreSobreSma ? -8 : 16));
+    let sm = acota(Y(primero.s) + (cierreSobreSma ? 16 : -8));
+    if (Math.abs(c - sm) < 14) {
+      if (c <= sm) c = sm - 14;
+      else sm = c - 14;
+    }
+    return { c, s: sm };
+  })();
   const zonaTexto = serie.rango === "24h" || x1 - x0 <= 36 * 3_600_000 ? "Hora de Torreón" : "Día · hora de Torreón";
 
   return (
@@ -307,7 +342,7 @@ export function GraficaPrecio({
         >
           {hayDatos ? (
             <div aria-hidden="true" className="absolute inset-0">
-              <ComposedChart width={ancho} height={alto} data={datos} margin={MARGEN} accessibilityLayer={false} tabIndex={-1}>
+              <ComposedChart width={ancho} height={alto} data={datos} margin={margen} accessibilityLayer={false} tabIndex={-1}>
                 <CartesianGrid stroke="var(--color-line)" vertical={false} />
                 <XAxis
                   type="number"
@@ -351,10 +386,10 @@ export function GraficaPrecio({
               {area ? (
                 <svg width={ancho} height={alto} className="pointer-events-none absolute inset-0" data-capa>
                   {/* rótulos directos de las dos líneas */}
-                  <text x={X(primero.ms) + 6} y={Y(primero.c) + (cierreSobreSma ? -8 : 16)} fontSize={12} fontWeight={600} fill="var(--color-ink)" stroke="var(--color-surface)" strokeWidth={3} paintOrder="stroke">
+                  <text x={X(primero.ms) + 6} y={etiquetasLineas.c} fontSize={12} fontWeight={600} fill="var(--color-ink)" stroke="var(--color-surface)" strokeWidth={3} paintOrder="stroke">
                     Cierre
                   </text>
-                  <text x={X(primero.ms) + 6} y={Y(primero.s) + (cierreSobreSma ? 16 : -8)} fontSize={12} fontWeight={600} fill="var(--color-muted)" stroke="var(--color-surface)" strokeWidth={3} paintOrder="stroke">
+                  <text x={X(primero.ms) + 6} y={etiquetasLineas.s} fontSize={12} fontWeight={600} fill="var(--color-muted)" stroke="var(--color-surface)" strokeWidth={3} paintOrder="stroke">
                     SMA20
                   </text>
                   <text x={area.left + area.width} y={alto - 4} textAnchor="end" fontSize={12} fill="var(--color-muted)">
@@ -366,7 +401,10 @@ export function GraficaPrecio({
                     const desde = X(Math.max(new Date(f.entrada.t).getTime(), x0));
                     const dest = hayDestacada && f.propuestaId === claveDestacada;
                     const opaco = hayDestacada && !dest ? 0.65 : 1;
-                    return (["stop_loss", "take_profit"] as const).map((t) => (
+                    return (["stop_loss", "take_profit"] as const).map((t) => {
+                      const v = Number(t === "stop_loss" ? f.niveles!.stopLoss : f.niveles!.takeProfit);
+                      if (v > y1 || v < y0) return null; // C-1: fuera del eje no hay línea, solo el rótulo con su flecha
+                      return (
                       <line
                         key={`${f.propuestaId}-${t}`}
                         data-nivel-linea={`${f.numero}-${t}`}
@@ -379,7 +417,8 @@ export function GraficaPrecio({
                         strokeDasharray={dest ? undefined : "2 3"}
                         opacity={opaco}
                       />
-                    ));
+                      );
+                    });
                   })}
 
                   {/* cursor de consulta */}
@@ -415,15 +454,18 @@ export function GraficaPrecio({
                     ),
                   )}
 
-                  {/* rótulos de nivel, encima de líneas y marcadores */}
+                  {/* rótulos de nivel: en la canaleta de la derecha (escritorio) o, en móvil, dentro del plano */}
                   {rotulos.map((r) => {
-                    const w = Math.min(r.texto.length * 6.4 + 10, area.width);
-                    const xr = area.left + area.width - 4;
+                    const xr = area.left + area.width + (canaleta ? 6 + r.w : -4);
                     return (
-                      <g key={r.texto + r.y} data-rotulo-nivel>
-                        <rect x={xr - w} y={r.y - 10} width={w} height={20} rx={3} fill="var(--color-surface)" fillOpacity={0.92} />
-                        <text x={xr - 5} y={r.y + 4} textAnchor="end" fontSize={12} fontWeight={600} fill={r.color}>
-                          {r.texto}
+                      <g key={r.lineas.join("|") + r.y} data-rotulo-nivel>
+                        <rect x={xr - r.w} y={r.y - r.h / 2} width={r.w} height={r.h} rx={3} fill="var(--color-surface)" fillOpacity={0.92} />
+                        <text x={xr - r.w + 6} y={r.lineas.length === 1 ? r.y + 4 : r.y - 3} fontSize={12} fontWeight={600} fill={r.color}>
+                          {r.lineas.map((l, i) => (
+                            <tspan key={l} x={xr - r.w + 6} dy={i === 0 ? 0 : 14}>
+                              {l}
+                            </tspan>
+                          ))}
                         </text>
                       </g>
                     );
@@ -433,6 +475,11 @@ export function GraficaPrecio({
             </div>
           ) : null}
         </div>
+        {ocultos ? (
+          <p data-niveles-nota className="mt-2 text-xs text-muted">
+            {abiertas.length * 2} niveles de {abiertas.length} posiciones abiertas · toca una entrada para ver los suyos
+          </p>
+        ) : null}
         <p id="ayuda-grafica" className="mt-2 hidden text-xs text-muted md:block">
           Teclas: ← → puntos · Re Pág / Av Pág marcadores · Intro abre · Esc cierra
         </p>
@@ -442,7 +489,7 @@ export function GraficaPrecio({
         seleccion={seleccion}
         serie={serie}
         ultimo={ultimo}
-        sinOperaciones={operaciones !== null && operaciones.filas.length === 0}
+        sinOperaciones={operaciones !== null && lista.length === 0}
         referencia={(el) => {
           panel.current = el;
         }}

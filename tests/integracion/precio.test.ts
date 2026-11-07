@@ -204,3 +204,14 @@ describe("precio-abiertas-10", () => {
     expect(r.filas.map((f) => f.numero)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
   });
 });
+
+describe("precio-entrada-sin-regla (R-3)", () => {
+  beforeAll(() => con("precio-entrada-sin-regla"));
+
+  it("una entrada cuya propuesta no trae los valores de la regla los devuelve null, sin romper la consulta", async () => {
+    const o = await operacionesPrecio("BTC/USD", "24h", AHORA);
+    expect(o.filas).toHaveLength(1);
+    expect(num(o.filas[0].entrada.precio)).toBe(100_450);
+    expect(o.filas[0].entrada).toMatchObject({ cierre: null, cierrePrevio: null, sma20: null });
+  });
+});

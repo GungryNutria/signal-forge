@@ -79,6 +79,9 @@ function Niveles({ m, ultimo }: { m: Marca; ultimo: PuntoPrecio }) {
   );
 }
 
+/** Valor de la regla que una propuesta que no es de la regla puede no traer (R-3). */
+const valor = (v: string | null) => (v === null ? "—" : usd(v));
+
 function DeMarca({ m, serie, ultimo, ahora }: { m: Marca; serie: SeriePrecio; ultimo: PuntoPrecio; ahora: Date }) {
   const op = m.op;
   const cabeza = (
@@ -103,9 +106,9 @@ function DeMarca({ m, serie, ultimo, ahora }: { m: Marca; serie: SeriePrecio; ul
           <Fila t="Tamaño">
             {cripto(e.cantidad, unidad(serie.activo))} · {usd(e.nocionalUsd)}
           </Fila>
-          <Fila t="Cierre">{usd(e.cierre)}</Fila>
-          <Fila t="Cierre anterior">{usd(e.cierrePrevio)}</Fila>
-          <Fila t="SMA20">{usd(e.sma20)}</Fila>
+          <Fila t="Cierre">{valor(e.cierre)}</Fila>
+          <Fila t="Cierre anterior">{valor(e.cierrePrevio)}</Fila>
+          <Fila t="SMA20">{valor(e.sma20)}</Fila>
         </Filas>
         {op.niveles ? <Niveles m={m} ultimo={ultimo} /> : null}
         <EnlaceOperacion m={m} serie={serie} />

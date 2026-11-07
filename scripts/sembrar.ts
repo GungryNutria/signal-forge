@@ -267,7 +267,7 @@ async function propuesta(
     evaluacionId?: string | null;
     original?: boolean;
     /** Valores de la regla guardados en la justificación (por defecto, los de siempre). */
-    regla?: { close_ultimo: number; close_previo: number; sma20: number };
+    regla?: { close_ultimo: number; close_previo: number; sma20: number } | null;
   },
 ): Promise<string> {
   const id = randomUUID();
@@ -297,7 +297,7 @@ async function propuesta(
     justificacion: o.activo
       ? {
           entradas: { closes: [99_900, 100_000, 100_100] },
-          resultado: { senal: true, ...(o.regla ?? { close_ultimo: 100_100, close_previo: 100_000, sma20: 99_990 }) },
+          resultado: o.regla === null ? {} : { senal: true, ...(o.regla ?? { close_ultimo: 100_100, close_previo: 100_000, sma20: 99_990 }) },
         }
       : null,
     entradaCruda: o.activo ? cuerpo : { activo: null, lado: "x" },
@@ -526,7 +526,7 @@ const reglaDe = (precio: number): Regla => ({ close_ultimo: precio + 20, close_p
 /** Propuesta ejecutada con su entrada (por defecto llenada, 500 USD) y, si se pide, su cierre. */
 async function loteDePrecio(
   s: Sem,
-  o: { activo: Activo; hace: number; precio: number; regla: Regla; entrada?: EntradaFinal; cierre?: { motivo: MotivoCierre; hace: number } },
+  o: { activo: Activo; hace: number; precio: number; regla: Regla | null; entrada?: EntradaFinal; cierre?: { motivo: MotivoCierre; hace: number } },
 ) {
   const propuestaId = await propuesta(s, { hace: o.hace, activo: o.activo, decision: "ejecutada", motivo: "aprobada", regla: o.regla });
   return operacion(s, { propuestaId, activo: o.activo, hace: o.hace, precio: o.precio, entrada: o.entrada, cierre: o.cierre });
@@ -899,6 +899,18 @@ export const ESCENARIOS: Record<string, Escenario> = {
   "precio-operaciones-cerrada": async (s) => {
     await ESCENARIOS["precio-serie"](s);
     await operacionesDePrecio(s, true);
+  },
+
+  // R-2: 3 días de puntos y una posición abierta hace 26 h: en 24 h no hay marcadores, pero sí niveles vigentes.
+  "precio-abierta-anterior": async (s) => {
+    await serieDePrecio(s, { activo: "BTC/USD", total: 144, ultimoHace: 10 });
+    await loteDePrecio(s, { activo: "BTC/USD", hace: 1_560, precio: 100_300, regla: reglaDe(100_300) });
+  },
+
+  // R-3: una entrada cuya propuesta no trae los valores de la regla (cierre, cierre previo y SMA20 salen null).
+  "precio-entrada-sin-regla": async (s) => {
+    await ESCENARIOS["precio-serie"](s);
+    await loteDePrecio(s, { activo: "BTC/USD", hace: 300, precio: 100_450, regla: null });
   },
 
   // AC-8, AC-UX-10: puntos de 3 días; un lote abierto hace 26 h y cerrado hace 2 h.

@@ -301,9 +301,10 @@ export type OperacionGrafica = {
     precio: string;
     nocionalUsd: string;
     cantidad: string;
-    cierre: string;
-    cierrePrevio: string;
-    sma20: string; // propuestas.justificacion.resultado
+    /** null si la propuesta no es de la regla y no trae sus valores (R-3): la UI muestra "—". */
+    cierre: string | null;
+    cierrePrevio: string | null;
+    sma20: string | null; // propuestas.justificacion.resultado
     enRango: boolean;
   };
   salida: null | {

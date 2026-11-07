@@ -54,8 +54,8 @@ export async function seriePrecio(activo: Activo, rango: Rango, ahora: Date): Pr
     ),
     filas<{ primero: Marca | null; ultimo: Marca | null }>(
       sql`SELECT
-            (SELECT ${VELA} + interval '30 minutes' FROM evaluaciones ev WHERE ${conDatos(activo)} ORDER BY ev.evaluada_en ASC LIMIT 1) AS primero,
-            (SELECT ${VELA} + interval '30 minutes' FROM evaluaciones ev WHERE ${conDatos(activo)} ORDER BY ev.evaluada_en DESC LIMIT 1) AS ultimo`,
+            (SELECT ${VELA} + interval '30 minutes' FROM evaluaciones ev WHERE ${conDatos(activo)} ORDER BY ${VELA} ASC LIMIT 1) AS primero,
+            (SELECT ${VELA} + interval '30 minutes' FROM evaluaciones ev WHERE ${conDatos(activo)} ORDER BY ${VELA} DESC LIMIT 1) AS ultimo`,
     ),
   ]);
 
@@ -92,9 +92,9 @@ type FilaLote = {
   precio_entrada: string;
   nocional: string;
   cantidad: string;
-  cierre: string;
-  cierre_previo: string;
-  sma20: string;
+  cierre: string | null;
+  cierre_previo: string | null;
+  sma20: string | null;
   stop_loss: string;
   take_profit: string;
   cerrado_en: Marca | null;

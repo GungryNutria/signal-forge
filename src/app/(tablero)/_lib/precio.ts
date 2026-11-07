@@ -6,7 +6,7 @@ import {
   RANGOS,
   type Rango,
 } from "@/server/consultas/tipos";
-import { dia, horaCorta, pct, zona } from "./formato";
+import { dia, horaCorta, pct, usd, zona } from "./formato";
 
 // Lógica pura de S6 Precio (spec 002): sin `server-only`, sin base y sin React, para probarla con vitest.
 // RANGOS y RANGO_MS viven en `consultas/tipos.ts` (desviación 1 de T-1) y se reexportan aquí.
@@ -188,6 +188,32 @@ export function separarRotulos(ys: number[], alto: number, min: number, max: num
   const salida: number[] = [];
   for (const o of orden) salida[o.i] = o.y;
   return salida;
+}
+
+/**
+ * Líneas del rótulo de uno o varios niveles del mismo tipo (C-2, C-3). Los números van en orden ascendente. `canaleta`
+ * es la columna de 168 px junto al plano (2 líneas si no cabe en 1); si no, una sola línea. `flecha` indica un nivel
+ * fuera del eje, fijado al borde.
+ */
+export function textoRotulo(o: {
+  tipo: "stop_loss" | "take_profit";
+  numeros: number[];
+  valores: number[];
+  flecha: "↑" | "↓" | null;
+  canaleta: boolean;
+}): string[] {
+  const pre = o.flecha ? `${o.flecha} ` : "";
+  const nums = [...o.numeros].sort((a, b) => a - b);
+  const vs = [...o.valores].sort((a, b) => a - b);
+  if (nums.length === 1) {
+    const texto = `${pre}${o.tipo === "stop_loss" ? "SL" : "TP"} #${nums[0]} · ${usd(vs[0])}`;
+    return o.canaleta && texto.length > 22 ? [`${pre}${o.tipo === "stop_loss" ? "SL" : "TP"} #${nums[0]}`, usd(vs[0])] : [texto];
+  }
+  const nombre = o.tipo === "stop_loss" ? "stop loss" : "take profit";
+  const rango = `${usd(vs[0]).replace(" USD", "")} a ${usd(vs[vs.length - 1])}`;
+  if (!o.canaleta) return [`${pre}${nums.length} ${nombre}: ${rango}`];
+  const lista = nums.length <= 3 ? nums.map((n) => `#${n}`).join(", ") : `#${nums[0]} a #${nums[nums.length - 1]}`;
+  return [`${pre}${nums.length} ${nombre} · ${lista}`, rango];
 }
 
 // ───────────────────────────── Ejes ─────────────────────────────

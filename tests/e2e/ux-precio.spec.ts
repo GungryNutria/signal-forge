@@ -21,6 +21,15 @@ const sinScrollHorizontal = async (page: Page) => {
 };
 const cajasRotulos = (page: Page) =>
   page.locator("[data-rotulo-nivel] rect").evaluateAll((rs) => rs.map((r) => r.getBoundingClientRect()).map((b) => ({ x: b.x, y: b.y, w: b.width, h: b.height })));
+/** Ningún rótulo de nivel toca un marcador ni un grupo (C-2, AC-UX-9). */
+const sinChoquesConMarcadores = async (page: Page) => {
+  const rotulos = await cajasRotulos(page);
+  const marcas = await page.locator("[data-marcador], [data-grupo]").evaluateAll((gs) => gs.map((g) => g.getBoundingClientRect()).map((b) => ({ x: b.x, y: b.y, w: b.width, h: b.height })));
+  for (const [i, a] of rotulos.entries())
+    for (const [j, b] of marcas.entries()) {
+      expect(a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h, `el rótulo ${i} toca el marcador ${j}`).toBe(false);
+    }
+};
 const sinChoques = (cajas: { x: number; y: number; w: number; h: number }[]) => {
   for (let i = 0; i < cajas.length; i++)
     for (let j = i + 1; j < cajas.length; j++) {
@@ -97,6 +106,31 @@ for (const m of MEDIDAS) {
         await page.goto("/precio?activo=SOL%2FUSD");
         await lista(page);
         sinChoques(await cajasRotulos(page));
+        await sinChoquesConMarcadores(page);
+        if (m.ancho >= 560) {
+          // Escritorio: todos los rótulos en la canaleta de 168 px a la derecha del plano, nunca sobre los datos.
+          const r = await page.locator("[data-rotulo-nivel]").count();
+          expect(r).toBeGreaterThan(0);
+          const area = await page.locator("[class*='recharts-cartesian-grid']").first().boundingBox();
+          for (const c of await cajasRotulos(page)) expect(c.x).toBeGreaterThanOrEqual(area!.x + area!.width - 1);
+        } else {
+          // Móvil: más de 4 rótulos o alguno que tocaría un marcador se sustituyen por la línea de explicación.
+          const r = await page.locator("[data-rotulo-nivel]").count();
+          if (r === 0) {
+            await expect(page.locator("[data-niveles-nota]")).toHaveText(`${2 * n} niveles de ${n} posiciones abiertas · toca una entrada para ver los suyos`);
+            // Al consultar una entrada se dibujan solo los rótulos de su posición.
+            const marca = page.locator("[data-marcador^='e:']").first();
+            if ((await marca.count()) > 0) {
+              await marca.scrollIntoViewIfNeeded();
+              const numero = (await marca.locator("text").first().textContent())!.trim();
+              const b = (await marca.locator("path").first().boundingBox())!;
+              await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
+              await expect(page.locator("[data-rotulo-nivel]")).toHaveCount(2);
+              await expect(page.locator("[data-rotulo-nivel]").first()).toContainText(numero);
+              sinChoques(await cajasRotulos(page)); // los de la posición consultada no se tocan entre sí
+            }
+          }
+        }
         await expect(page.locator("[data-posicion]")).toHaveCount(n);
         await expect(page.locator("[data-nivel]")).toHaveCount(2 * n);
         await sinScrollHorizontal(page);

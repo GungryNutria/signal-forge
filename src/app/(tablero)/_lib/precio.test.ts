@@ -16,6 +16,7 @@ import {
   separarRotulos,
   ticksX,
   ticksY,
+  textoRotulo,
   tramos,
 } from "./precio";
 
@@ -123,6 +124,19 @@ describe("separarRotulos (AC-UX-8)", () => {
     expect(Math.max(...r)).toBeLessThanOrEqual(420);
     expect(r[1] - r[0]).toBeGreaterThanOrEqual(22);
     expect(r[2] - r[1]).toBeGreaterThanOrEqual(22);
+  });
+});
+
+describe("textoRotulo (C-2, C-3)", () => {
+  it("un nivel cabe en una línea y con flecha pasa a dos en la canaleta", () => {
+    expect(textoRotulo({ tipo: "stop_loss", numeros: [2], valores: [96870.28], flecha: null, canaleta: true })).toEqual(["SL #2 · 96,870.28 USD"]);
+    expect(textoRotulo({ tipo: "take_profit", numeros: [1], valores: [104468], flecha: "↑", canaleta: true })).toEqual(["↑ TP #1", "104,468.00 USD"]);
+    expect(textoRotulo({ tipo: "take_profit", numeros: [1], valores: [104468], flecha: "↑", canaleta: false })).toEqual(["↑ TP #1 · 104,468.00 USD"]);
+  });
+  it("los números van en orden ascendente, no de texto", () => {
+    expect(textoRotulo({ tipo: "take_profit", numeros: [10, 9], valores: [267.28, 264.16], flecha: null, canaleta: true })).toEqual(["2 take profit · #9, #10", "264.16 a 267.28 USD"]);
+    expect(textoRotulo({ tipo: "stop_loss", numeros: [10, 2, 9, 1], valores: [1, 2, 3, 4], flecha: "↓", canaleta: true })[0]).toBe("↓ 4 stop loss · #1 a #10");
+    expect(textoRotulo({ tipo: "stop_loss", numeros: [3, 2], valores: [231.28, 228.34], flecha: null, canaleta: false })).toEqual(["2 stop loss: 228.34 a 231.28 USD"]);
   });
 });
 

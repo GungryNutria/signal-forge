@@ -106,7 +106,10 @@ test.describe("alternativa en texto", () => {
     const r = principal(page).locator("section[aria-labelledby='alt-resumen']");
     await expect(r).toContainText(/Último cierre: [\d,]+\.\d{2} USD a las \d{2}:\d{2} \(UTC−6\) · SMA20: [\d,]+\.\d{2} USD/);
     await expect(r).toContainText(/Mínimo [\d,]+\.\d{2} USD · máximo [\d,]+\.\d{2} USD en el rango/);
-    await expect(r).toContainText(/2 huecos sin datos: \d{2}:\d{2} a \d{2}:\d{2} y \d{2}:\d{2} a \d{2}:\d{2} \(UTC−6\)/);
+    await expect(r).toContainText(/2 huecos sin datos: velas de \d{2}:\d{2} a \d{2}:\d{2} y de \d{2}:\d{2} a \d{2}:\d{2} \(UTC−6\)/);
+    const texto = await r.innerText();
+    const [, a, b] = /velas de (\d{2}:\d{2}) a (\d{2}:\d{2})/.exec(texto)!;
+    expect(a).not.toBe(b); // C-5: el intervalo es de la vela que falta, no "21:31 a 21:31"
     await expect(r).toContainText(/Datos desde el \d+ nov, \d{2}:\d{2} \(UTC−6\)/);
   });
 
@@ -540,5 +543,64 @@ test.describe("navegación y ida y vuelta con S3", () => {
     await expect(page.getByText("Última ejecución", { exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: /Datos de las/ })).toHaveCount(0);
     await ctx.close();
+  });
+});
+
+test.describe("revisión de T-9 y T-8", () => {
+  test("C-1: el eje cubre serie y marcadores; un nivel fuera del eje no lleva línea y su rótulo va al borde con flecha", async ({ page }) => {
+    sembrar("precio-desde-s3");
+    await page.goto("/precio?activo=BTC%2FUSD&rango=24h");
+    await lista(page);
+    await expect(page.locator("[data-nivel-linea='1-stop_loss']")).toHaveCount(0);
+    await expect(page.locator("[data-nivel-linea='1-take_profit']")).toHaveCount(1);
+    const rotulos = page.locator("[data-rotulo-nivel]");
+    await expect(rotulos).toHaveCount(2);
+    await expect(rotulos.filter({ hasText: "↓" })).toContainText("SL #1");
+    // La consulta y la lista no cambian: el nivel sigue completo en el texto.
+    await expect(page.locator("[data-posicion='1'] [data-nivel='stop_loss']")).toContainText("98,");
+  });
+
+  test("C-2 y C-3: rótulos agrupados en la canaleta con los números en orden ascendente", async ({ page }) => {
+    sembrar("precio-abiertas-10");
+    await page.goto("/precio?activo=SOL%2FUSD");
+    await lista(page);
+    const textos = await page.locator("[data-rotulo-nivel]").allTextContents();
+    expect(textos.join(" ")).toMatch(/\d+ (stop loss|take profit) · #\d+/);
+    for (const t of textos) {
+      const nums = [...t.matchAll(/#(\d+)/g)].map((m) => Number(m[1]));
+      expect(nums).toEqual([...nums].sort((a, b) => a - b));
+    }
+  });
+
+  test("C-4: 'Cierre' y 'SMA20' quedan al menos 14 px por encima del eje X", async ({ page }) => {
+    sembrar("precio-abiertas-3");
+    await page.goto("/precio?activo=SOL%2FUSD");
+    await lista(page);
+    const eje = await page.locator("[class*='xAxis'] line.recharts-cartesian-axis-line").first().boundingBox();
+    for (const t of ["Cierre", "SMA20"]) {
+      const b = (await page.locator("svg[data-capa] text", { hasText: new RegExp(`^${t}$`) }).boundingBox())!;
+      expect(b.y + b.height).toBeLessThanOrEqual(eje!.y - 4);
+    }
+  });
+
+  test("R-2: sin marcadores en el rango (solo una abierta con entrada anterior) se dice 'Sin operaciones en este rango' y los niveles siguen", async ({ page }) => {
+    sembrar("precio-abierta-anterior");
+    await page.goto("/precio");
+    await lista(page);
+    await expect(marcador(page, "e")).toHaveCount(0);
+    await expect(panel(page)).toContainText("Sin operaciones en este rango");
+    await expect(page.locator("[data-rotulo-nivel]")).toHaveCount(2);
+    await expect(page.locator("[data-posicion='1']")).toContainText(/Entrada el \d+ nov, fuera de este rango/);
+  });
+
+  test("R-3: una entrada cuya propuesta no trae los valores de la regla muestra '—' y no rompe la consulta", async ({ page }) => {
+    sembrar("precio-entrada-sin-regla");
+    await page.goto("/precio");
+    await lista(page);
+    await page.locator("[data-grafica]").focus();
+    await page.keyboard.press("PageDown");
+    await expect(panel(page).getByRole("heading", { name: /^Entrada/ })).toBeVisible();
+    await expect(panel(page)).toContainText(/Cierre\s*—/);
+    await expect(panel(page)).toContainText(/SMA20\s*—/);
   });
 });

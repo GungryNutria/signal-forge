@@ -86,7 +86,8 @@ export function AlternativaTexto({
   const lista = operaciones ? marcas(operaciones.filas).reverse() : [];
   const abiertas = operaciones ? operaciones.filas.filter((f) => f.niveles) : [];
   const incompleta = serie.desde !== null && serie.primerPunto !== null && serie.primerPunto > serie.desde;
-  const huecos = r.huecos.map((h) => `${horaCorta(h.desde)} a ${horaCorta(h.hasta)}`);
+  // C-5: el hueco se dice con las velas que faltan (inicio de la primera a cierre de la última), no con sus horas de cierre.
+  const huecos = r.huecos.map((h) => `de ${horaCorta(new Date(Date.parse(h.desde) - 30 * 60_000).toISOString())} a ${horaCorta(h.hasta)}`);
 
   return (
     <Tarjeta className="flex flex-col gap-6 p-4 md:p-6">
@@ -110,7 +111,7 @@ export function AlternativaTexto({
         <p>
           {huecos.length === 0
             ? "Sin huecos en los datos"
-            : `${huecos.length} ${huecos.length === 1 ? "hueco" : "huecos"} sin datos: ${huecos.join(" y ")} (${z})`}
+            : `${huecos.length} ${huecos.length === 1 ? "hueco" : "huecos"} sin datos: velas ${huecos.join(" y ")} (${z})`}
         </p>
         <p>
           Datos desde el {diaYHora(r.primero!.t)} ({z}){incompleta ? "" : ", todo el rango"}
