@@ -1,9 +1,11 @@
 import { randomUUID } from "node:crypto";
+import { drizzle } from "drizzle-orm/node-postgres";
 import type { Pool } from "pg";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { tsPosteriores } from "@/core/foto";
 import { ejecutarCiclo, type DepsCiclo } from "@/procesos/ciclo";
 import { ejecutarVigilante } from "@/procesos/vigilante";
+import { calcularCartera, entradasAbiertasPorActivo } from "@/server/cartera";
 import { BrokerSimulado, DatosSimulados } from "@/server/broker/simulado";
 import type { Barra } from "@/server/broker/tipos";
 import { abrirPool, reiniciarBase } from "./arnes";
@@ -310,5 +312,90 @@ describe("R11 en el ciclo (spec 003)", () => {
       { "BTC/USD": 0, "SOL/USD": 0 },
       { "BTC/USD": 1, "SOL/USD": 0 },
     ]);
+  });
+});
+
+describe("modos del ciclo (spec 004: REQ-14, REQ-16, REQ-18; AC-12, AC-13, AC-15)", () => {
+  const estadoCartera = async () => ({
+    cartera: await calcularCartera(drizzle(e.pool), AHORA, false),
+    abiertas: await entradasAbiertasPorActivo(drizzle(e.pool)),
+  });
+
+  it("sin MODO_*: ejecuta como antes, con el modo en cada evaluación y un evento de modos", async () => {
+    const r = await ejecutarCiclo(e.deps);
+    expect(r.evaluaciones.map((x) => x.resultado)).toEqual(["propuesta", "propuesta"]);
+    expect(await q("SELECT modo, motivo_modo FROM evaluaciones")).toEqual([
+      { modo: "ejecuta", motivo_modo: null },
+      { modo: "ejecuta", motivo_modo: null },
+    ]);
+    const evs = await q("SELECT tipo, detalle FROM eventos WHERE tipo = 'modo_proponentes'");
+    expect(evs).toHaveLength(1);
+    expect(evs[0].detalle).toEqual({
+      ciclo: { configurado: "ejecuta", efectivo: "ejecuta", motivo: null },
+      decisor: { configurado: "apagado", efectivo: "apagado", motivo: null },
+    });
+  });
+
+  it("AC-15: en solo_registra la señal de BTC queda como senal_registrada con su foto; sin propuesta, orden ni cambio de cartera (O-1 de la 003)", async () => {
+    await reiniciar({ btc: "sube", sol: "baja" });
+    vi.stubEnv("MODO_CICLO", "solo_registra");
+    const antes = await estadoCartera();
+    const r = await ejecutarCiclo(e.deps);
+    expect(r.estado).toBe("completada");
+    expect(r.evaluaciones.map((x) => [x.activo, x.resultado])).toEqual([
+      ["BTC/USD", "senal_registrada"],
+      ["SOL/USD", "sin_senal"],
+    ]);
+    const [ev] = await q("SELECT resultado, modo, motivo_modo, foto, version_regla FROM evaluaciones WHERE activo = 'BTC/USD'");
+    expect(ev).toMatchObject({ resultado: "senal_registrada", modo: "solo_registra", motivo_modo: null, version_regla: "tendencia-sma-v1" });
+    expect(ev.foto.version).toBe("foto-v2");
+    expect(ev.foto.regla.resultado.senal).toBe(true);
+    expect(await q("SELECT 1 FROM ejecuciones")).toHaveLength(1);
+    expect(await q("SELECT 1 FROM propuestas")).toHaveLength(0);
+    expect(await q("SELECT 1 FROM ordenes")).toHaveLength(0);
+    expect(e.broker.llamadas).toHaveLength(0);
+    // R11 (abiertas), R5 (entradas del día), exposición, saldo y PnL: iguales antes y después.
+    expect(await estadoCartera()).toEqual(antes);
+    // La foto de la siguiente evaluación tampoco ve una entrada abierta.
+    await ejecutarCiclo({ ...e.deps, ahora: () => new Date(AHORA.getTime() + 30 * MIN) });
+    const fotos = await q("SELECT foto FROM evaluaciones WHERE activo = 'BTC/USD' ORDER BY evaluada_en");
+    expect(fotos[1].foto.cartera.entradas_abiertas_por_activo).toEqual({ "BTC/USD": 0, "SOL/USD": 0 });
+  });
+
+  it("apagado: termina sin registrar ejecución ni evaluaciones, sin tocar al broker", async () => {
+    vi.stubEnv("MODO_CICLO", "apagado");
+    const r = await ejecutarCiclo(e.deps);
+    expect(r).toEqual({ ejecucionId: null, estado: "apagado", evaluaciones: [] });
+    expect(await q("SELECT 1 FROM ejecuciones")).toHaveLength(0);
+    expect(await q("SELECT 1 FROM evaluaciones")).toHaveLength(0);
+    expect(e.broker.llamadas).toHaveLength(0);
+    expect(e.log.map((l) => JSON.parse(l))).toContainEqual({ evento: "ciclo", estado: "apagado" });
+    expect(await q("SELECT 1 FROM eventos WHERE tipo = 'modo_proponentes'")).toHaveLength(1);
+  });
+
+  it("AC-13: con los dos en ejecuta, la señal queda registrada con su motivo y nada llega al broker", async () => {
+    vi.stubEnv("MODO_CICLO", "ejecuta");
+    vi.stubEnv("MODO_DECISOR", "ejecuta");
+    await ejecutarCiclo(e.deps);
+    expect(await q("SELECT resultado, modo, motivo_modo FROM evaluaciones ORDER BY activo")).toEqual([
+      { resultado: "senal_registrada", modo: "solo_registra", motivo_modo: "dos_proponentes_en_ejecuta" },
+      { resultado: "senal_registrada", modo: "solo_registra", motivo_modo: "dos_proponentes_en_ejecuta" },
+    ]);
+    expect(await q("SELECT 1 FROM propuestas")).toHaveLength(0);
+    expect(e.broker.llamadas).toHaveLength(0);
+    const [ev] = await q("SELECT detalle FROM eventos WHERE tipo = 'modo_proponentes'");
+    expect(ev.detalle.ciclo.motivo).toBe("dos_proponentes_en_ejecuta");
+    expect(ev.detalle.decisor.motivo).toBe("dos_proponentes_en_ejecuta");
+  });
+
+  it.each(["MODO_CICLO", "MODO_DECISOR"])("%s inválido: la ejecución termina en error sin evaluar ni proponer, y el error no repite el valor", async (nombre) => {
+    vi.stubEnv(nombre, "quizas-secreto");
+    const r = await ejecutarCiclo(e.deps);
+    expect(r.estado).toBe("error");
+    expect(await q("SELECT 1 FROM evaluaciones")).toHaveLength(0);
+    expect(await q("SELECT 1 FROM propuestas")).toHaveLength(0);
+    expect(e.broker.llamadas).toHaveLength(0);
+    const [c] = await q("SELECT estado, error FROM ejecuciones_cierre");
+    expect(c).toEqual({ estado: "error", error: `${nombre} inválido` });
   });
 });

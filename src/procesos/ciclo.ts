@@ -4,6 +4,7 @@ import { Pool } from "pg";
 import { ACTIVOS, type Activo } from "@/core/activos";
 import { armarFoto, type DatoConTs } from "@/core/foto";
 import { evaluarTendenciaSmaV1, TENDENCIA_SMA_V1 } from "@/core/regla/tendencia-sma-v1";
+import type { Modos } from "@/core/modos";
 import { ranura30 } from "@/core/tiempo";
 import { AlpacaBroker } from "@/server/broker/alpaca";
 import { AlpacaDatos } from "@/server/broker/datos";
@@ -22,6 +23,7 @@ import {
 } from "@/server/db/esquema";
 import { cargarEnv, leerMaxEntradasAbiertas, type Env } from "@/server/env";
 import { guardarLectura } from "@/server/lecturas";
+import { modosActuales, registrarModos } from "@/server/modos";
 import { carteraParaFoto, investigacionVigente } from "@/server/foto";
 import { procesarPropuesta, URL_PAPER, type CtxPropuesta } from "@/server/propuestas/procesar";
 
@@ -44,8 +46,9 @@ export type DepsCiclo = {
 };
 
 export type ResultadoCiclo = {
-  ejecucionId: string;
-  estado: "completada" | "error" | "omitida_solapamiento";
+  /** Nulo con el ciclo apagado: no se registra ejecución (REQ-14). */
+  ejecucionId: string | null;
+  estado: "completada" | "error" | "omitida_solapamiento" | "apagado";
   evaluaciones: { activo: Activo; resultado: string; propuestaId?: string }[];
 };
 
@@ -120,6 +123,21 @@ async function correr(
 ): Promise<ResultadoCiclo> {
   const inicio = deps.ahora();
   const ranura = ranura30(inicio);
+  // REQ-14, REQ-16: los modos se leen al empezar. Un valor inválido no se resuelve aquí: la ejecución termina en `error`
+  // sin evaluar ni proponer, igual que con N inválida.
+  const modos: Modos | Error = (() => {
+    try {
+      return modosActuales();
+    } catch (e) {
+      return comoError(e);
+    }
+  })();
+  if (!(modos instanceof Error)) await registrarModos(db, modos, inicio);
+  if (!(modos instanceof Error) && modos.ciclo.efectivo === "apagado") {
+    log({ evento: "ciclo", estado: "apagado" });
+    return { ejecucionId: null, estado: "apagado", evaluaciones: [] };
+  }
+  const modoCiclo = modos instanceof Error ? null : modos.ciclo;
   const [{ id: ejecucionId }] = await db
     .insert(ejecuciones)
     .values({ ranura, inicio, versionRegla: TENDENCIA_SMA_V1.version })
@@ -130,6 +148,7 @@ async function correr(
   let abortado = false;
 
   const evaluar = async () => {
+    if (modos instanceof Error) throw modos;
     // REQ-8: N se lee al empezar; si es inválida lanza y la ejecución termina en `error` sin evaluar ni proponer.
     const maxEntradasAbiertasPorActivo = leerMaxEntradasAbiertas();
     const mercado = await leerMercado(deps.datos, new Date(inicio.getTime() - 25 * 60 * MIN), inicio);
@@ -143,7 +162,7 @@ async function correr(
     for (const activo of ACTIVOS) {
       if (abortado) return;
       try {
-        hechos.push(await evaluarActivo({ deps, db, ejecucionId, ranura, activo, mercado, T, bid, maxEntradasAbiertasPorActivo, limpiar, fallos, abortado: () => abortado }));
+        hechos.push(await evaluarActivo({ deps, db, ejecucionId, ranura, activo, mercado, T, bid, maxEntradasAbiertasPorActivo, modo: modos.ciclo, limpiar, fallos, abortado: () => abortado }));
       } catch (e) {
         const detalle = limpiar(comoError(e).message);
         const [fila] = await db
@@ -156,6 +175,8 @@ async function correr(
             versionRegla: TENDENCIA_SMA_V1.version,
             foto: { version: "foto-v2" },
             errorDetalle: detalle,
+            modo: modoCiclo?.efectivo ?? null,
+            motivoModo: modoCiclo?.motivo ?? null,
           })
           .onConflictDoNothing()
           .returning({ id: evaluaciones.id });
@@ -187,6 +208,8 @@ async function correr(
             versionRegla: TENDENCIA_SMA_V1.version,
             foto: { version: "foto-v2" },
             errorDetalle: "plazo interno agotado",
+            modo: modoCiclo?.efectivo ?? null,
+            motivoModo: modoCiclo?.motivo ?? null,
           })
           .onConflictDoNothing()
           .returning({ id: evaluaciones.id });
@@ -228,6 +251,7 @@ type ParamsActivo = {
   T: Date;
   bid: Record<Activo, number | null>;
   maxEntradasAbiertasPorActivo: number;
+  modo: Modos["ciclo"];
   limpiar: (t: string) => string;
   fallos: string[];
   abortado: () => boolean;
@@ -273,7 +297,9 @@ async function evaluarActivo(p: ParamsActivo): Promise<ResultadoCiclo["evaluacio
     investigacion,
   });
 
-  const resultado = sinDatos ? "datos_no_disponibles" : regla?.resultado.senal ? "propuesta" : "sin_senal";
+  // REQ-18: en `solo_registra` la señal se guarda como `senal_registrada` y no llega a `procesarPropuesta`.
+  const conSenal = regla?.resultado.senal ? (p.modo.efectivo === "solo_registra" ? "senal_registrada" : "propuesta") : "sin_senal";
+  const resultado = sinDatos ? "datos_no_disponibles" : conSenal;
   const [{ id: evaluacionId }] = await db
     .insert(evaluaciones)
     .values({
@@ -285,6 +311,8 @@ async function evaluarActivo(p: ParamsActivo): Promise<ResultadoCiclo["evaluacio
       foto,
       investigacionId: investigacion?.id ?? null,
       errorDetalle: sinDatos ? p.limpiar(sinDatos) : null,
+      modo: p.modo.efectivo,
+      motivoModo: p.modo.motivo,
     })
     .returning({ id: evaluaciones.id });
   if (resultado !== "propuesta" || !regla || p.abortado()) return { activo, resultado };

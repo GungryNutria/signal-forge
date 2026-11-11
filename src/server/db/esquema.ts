@@ -72,13 +72,16 @@ export const evaluaciones = pgTable(
     foto: jsonb("foto").notNull(),
     investigacionId: uuid("investigacion_id").references(() => investigaciones.id),
     errorDetalle: text("error_detalle"),
+    // Modo efectivo del ciclo al evaluar (REQ-14). Nulo = anterior a los modos.
+    modo: text("modo"),
+    motivoModo: text("motivo_modo"),
   },
   (t) => [
     uniqueIndex("evaluaciones_ejecucion_activo_uq").on(t.ejecucionId, t.activo),
     check("evaluaciones_activo_ck", sql`${t.activo} IN ${ACTIVOS}`),
     check(
       "evaluaciones_resultado_ck",
-      sql`${t.resultado} IN ('sin_senal','propuesta','datos_no_disponibles','error')`,
+      sql`${t.resultado} IN ('sin_senal','propuesta','senal_registrada','datos_no_disponibles','error')`,
     ),
     index("evaluaciones_activo_evaluada_idx").on(t.activo, t.evaluadaEn.desc()),
     index("evaluaciones_resultado_idx").on(t.resultado),
@@ -280,7 +283,7 @@ export const eventos = pgTable(
   (t) => [
     check(
       "eventos_tipo_ck",
-      sql`${t.tipo} IN ('auth_fallida','pausa_automatica','entorno_no_paper','error_ciclo','error_vigilante')`,
+      sql`${t.tipo} IN ('auth_fallida','pausa_automatica','entorno_no_paper','error_ciclo','error_vigilante','modo_proponentes')`,
     ),
     uniqueIndex("eventos_pausa_dia_uq")
       .on(t.diaUtc)
