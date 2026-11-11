@@ -264,7 +264,7 @@ async function proteger(
         ORDER BY l.abierto_en, l.id`,
   );
   const precios = new Map(
-    (await filas<{ activo: string; bid: string | null; leido_en: Date | null }>(db, sql`SELECT activo, bid::text, leido_en FROM lecturas_mercado`)).map(
+    (await filas<{ activo: string; bid: string | null; leido_en: Date | null; fuente_ts: Date | null }>(db, sql`SELECT activo, bid::text, leido_en, fuente_ts FROM lecturas_mercado`)).map(
       (p) => [p.activo, p],
     ),
   );
@@ -283,7 +283,7 @@ async function proteger(
     const [orden] = await db.transaction(async (tx) => {
       const o = await tx
         .insert(ordenes)
-        .values({ loteId: l.id, tramo: "salida", clientOrderId, activo: l.activo, lado: "sell", cantidad: l.cantidad_neta, creadaEn: ahora })
+        .values({ loteId: l.id, tramo: "salida", clientOrderId, activo: l.activo, lado: "sell", cantidad: l.cantidad_neta, creadaEn: ahora, precioDisparo: String(bid), precioDisparoTs: p.fuente_ts ? new Date(p.fuente_ts) : null })
         .returning({ id: ordenes.id });
       await tx.insert(eventosOrden).values({ ordenId: o[0].id, momento: ahora, estado: "pendiente_envio", detalle: motivo });
       return o;
