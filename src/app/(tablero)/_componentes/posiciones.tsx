@@ -30,9 +30,26 @@ function Pnl({ lote }: { lote: LoteAbierto }) {
 const Precio = ({ lote }: { lote: LoteAbierto }) =>
   lote.precioActual === null ? <NoDisponible /> : <Monto texto={usd(lote.precioActual)} />;
 
+/** AC-UX-6: entradas abiertas por activo frente al tope. Neutro: en el tope solo dice qué pasará, sin alerta. */
+function EntradasAbiertas({ filas, tope }: { filas: { activo: string; n: number }[]; tope: number }) {
+  if (filas.length === 0) return null;
+  return (
+    <ul aria-label="Entradas abiertas por activo" data-entradas-abiertas className="mb-3 flex flex-col gap-1 text-sm">
+      {filas.map(({ activo, n }) => (
+        <li key={activo} className="[overflow-wrap:anywhere]">
+          <span className="font-semibold">{activo}</span> · {n} {n === 1 ? "entrada abierta" : "entradas abiertas"} · tope {tope}
+          {n >= tope ? ": las entradas nuevas se rechazan por R11" : ""}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export async function PosicionesAbiertas() {
   const { datos: c } = await cartera();
-  if (c.lotesAbiertos.length === 0) return <Vacio>Sin posiciones abiertas</Vacio>;
+  if (c.lotesAbiertos.length === 0 && c.entradasAbiertas.length === 0) return <Vacio>Sin posiciones abiertas</Vacio>;
+  const entradas = <EntradasAbiertas filas={c.entradasAbiertas} tope={c.topeEntradasPorActivo} />;
+  if (c.lotesAbiertos.length === 0) return entradas;
 
   const sinPrecio = c.lotesAbiertos.some((l) => l.precioActual === null);
   const lectura = sinPrecio
@@ -43,6 +60,7 @@ export async function PosicionesAbiertas() {
 
   return (
     <>
+      {entradas}
       {sinPrecio ? (
         <div className="mb-3">
           <Chip tono="warn">{lectura ? `Última lectura ${hora(lectura)}, desactualizada` : "Desactualizada"}</Chip>

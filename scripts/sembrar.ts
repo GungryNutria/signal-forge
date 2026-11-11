@@ -1018,7 +1018,8 @@ export const ESCENARIOS: Record<string, Escenario> = {
       evaluacionId: e0.evaluaciones["BTC/USD"],
     });
     await operacion(s, { propuestaId: abierta, activo: "BTC/USD", hace: 90 });
-    for (const [hace, proponente] of [[60, "ciclo"], [50, "decisor-simulado"]] as const) {
+    // Más recientes que la ejecución de `sistemaAlDia` (hace 12): la banda de S1 muestra el último rechazo por R11.
+    for (const [hace, proponente] of [[10, "ciclo"], [8, "decisor-simulado"]] as const) {
       const e = await ejecucion(s, { hace, activos: { "BTC/USD": { resultado: "propuesta", abiertas: { "BTC/USD": 1 } } } });
       await propuesta(s, {
         hace,

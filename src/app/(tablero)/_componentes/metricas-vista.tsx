@@ -3,7 +3,7 @@ import { proximaEjecucion, proximaInvestigacion } from "@/core/tiempo";
 import { metricas } from "@/server/consultas/metricas";
 import type { Metricas } from "@/server/consultas/tipos";
 import { cartera, conHora } from "../_lib/datos";
-import { dia, diaYHora, hora, pct, signo, usd, usdConSigno, zona } from "../_lib/formato";
+import { dia, diaYHora, hora, motivo, NOMBRE_REGLA, pct, signo, usd, usdConSigno, zona } from "../_lib/formato";
 import { leerActivo, type Params } from "../_lib/params";
 import { BloqueConError } from "./bloque";
 import { Barra, Cargando } from "./esqueleto";
@@ -62,6 +62,30 @@ function TablaTexto({ titulo, filas }: { titulo: string; filas: [string, string]
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+/** Rechazadas por motivo (AC-UX-4). R11 va siempre: con su conteo, o "No evaluada en este periodo" si ninguna propuesta se evaluó con ella. */
+function RechazosPorMotivo({ m }: { m: Metricas }) {
+  const filas = m.porMotivo.filter((f) => f.motivo !== "R11" && f.n > 0).map((f) => ({ ...f, nombre: NOMBRE_REGLA[f.motivo] ? `${f.motivo} ${NOMBRE_REGLA[f.motivo]}` : motivo(f.motivo) }));
+  const r11 = m.porMotivo.find((f) => f.motivo === "R11")?.n ?? 0;
+  const nombreR11 = `R11 ${NOMBRE_REGLA.R11}`;
+  return (
+    <div className="mt-4" data-rechazos-por-motivo>
+      <h3 className="mb-1 text-[13px] font-semibold text-muted">Rechazadas por motivo</h3>
+      <ul className="text-sm">
+        {filas.map((f) => (
+          <li key={f.motivo} className="flex flex-wrap justify-between gap-x-4 border-b border-line py-1.5">
+            <span>{f.nombre}</span>
+            <span className="font-semibold">{f.n}</span>
+          </li>
+        ))}
+        <li className="flex flex-wrap justify-between gap-x-4 py-1.5">
+          <span>{nombreR11}</span>
+          {m.r11Evaluadas === 0 ? <span className="text-muted">No evaluada en este periodo</span> : <span className="font-semibold">{r11}</span>}
+        </li>
+      </ul>
     </div>
   );
 }
@@ -234,6 +258,7 @@ function Contenido({ m, activo, inicial, ahora }: { m: Metricas; activo: string 
                 </span>
               </p>
               <p className="mt-3 text-xs text-muted">Relleno sólido: aprobadas. Contorno: rechazadas.</p>
+              <RechazosPorMotivo m={m} />
             </>
           )}
         </Tarjeta>

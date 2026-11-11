@@ -46,5 +46,6 @@ export default defineConfig({
     iniciar(PUERTOS.fallaEjecuciones, { SF_FALLA_INYECTADA: "listarEjecuciones" }),
     iniciar(PUERTOS.fallaSeriePrecio, { SF_FALLA_INYECTADA: "seriePrecio" }),
     iniciar(PUERTOS.fallaOperacionesPrecio, { SF_FALLA_INYECTADA: "operacionesPrecio" }),
+    iniciar(PUERTOS.tope2, { MAX_ENTRADAS_ABIERTAS_POR_ACTIVO: "2" }), // AC-UX-6: S1 frente a un tope de 2
   ],
 });

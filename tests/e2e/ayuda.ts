@@ -15,6 +15,7 @@ export const PUERTOS = {
   fallaEjecuciones: 3199,
   fallaSeriePrecio: 3200,
   fallaOperacionesPrecio: 3201,
+  tope2: 3202,
 } as const;
 
 export const BASE = process.env.E2E_DATABASE_URL;
@@ -114,6 +115,18 @@ export function precioConocido(): {
   const codigo = `import { PRECIO_CONOCIDO as K } from "./scripts/sembrar";
 const n = (f: (i: number) => number) => Array.from({ length: 10 }, (_, i) => f(i));
 console.log(JSON.stringify({ puntosBtc: K.puntosBtc(new Date()), sl: K.sl, tp: K.tp, abierta: K.abierta, desdeS3: K.desdeS3, abiertas: { precio: n(K.abiertas.precio), entradaHace: n(K.abiertas.entradaHace) } }));`;
+  const salida = execFileSync(process.execPath, ["node_modules/tsx/dist/cli.mjs", "--eval", codigo], { env: { ...process.env, APP_ENV: "test" }, encoding: "utf8" });
+  return JSON.parse(salida.trim().split("\n").at(-1) as string);
+}
+
+/** `DESLIZAMIENTO_CONOCIDO` de `scripts/sembrar.ts` (spec 003), calculado a mano; se lee con tsx por el `import.meta` del script. */
+export type CierreConocido = {
+  llenado: string; disparo: string | null; nivel: string;
+  movimientoUsd: string; movimientoPct: string; deslizamientoUsd: string; deslizamientoPct: string;
+  comisionUsd: string; comisionPct: string; pnlNetoUsd: string; pnlNetoPct: string;
+};
+export function deslizamientoConocido(): { stop: CierreConocido; takeProfit: CierreConocido; anterior: CierreConocido } {
+  const codigo = `import { DESLIZAMIENTO_CONOCIDO as K } from "./scripts/sembrar";\nconsole.log(JSON.stringify(K));`;
   const salida = execFileSync(process.execPath, ["node_modules/tsx/dist/cli.mjs", "--eval", codigo], { env: { ...process.env, APP_ENV: "test" }, encoding: "utf8" });
   return JSON.parse(salida.trim().split("\n").at(-1) as string);
 }

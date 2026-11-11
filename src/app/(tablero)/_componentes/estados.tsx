@@ -1,4 +1,5 @@
 import type { Decision, EstadoEjecucion, EstadoOperacion, ResultadoActivo } from "@/server/consultas/tipos";
+import { nombreCorto } from "../_lib/formato";
 import { Chip, type Tono } from "./chip";
 
 // Vocabulario fijo de la spec (Criterios de UX): se escribe palabra por palabra, igual en todas las superficies.
@@ -27,6 +28,10 @@ export const ChipOperacion = ({ estado }: { estado: EstadoOperacion }) => (
   <Chip tono={OPERACION[estado].tono}>{OPERACION[estado].texto}</Chip>
 );
 
+/** "Rechazada (R11 entradas abiertas)": junto a la decisión, la regla principal con su nombre corto (AC-UX-5). */
+const decisionConRegla = (r: ResultadoActivo, texto: string): string =>
+  r.decision === "rechazada" && r.reglaPrincipal ? `${texto} (${nombreCorto(r.reglaPrincipal)})` : texto;
+
 /** Resultado de un activo en una ejecución (REQ-37). "Sin señal" es neutro: no es error ni alerta. */
 export function ChipResultado({ r }: { r: ResultadoActivo | null }) {
   if (r === null) return <Chip>En curso</Chip>;
@@ -35,7 +40,7 @@ export function ChipResultado({ r }: { r: ResultadoActivo | null }) {
       return <Chip>Sin señal</Chip>;
     case "propuesta": {
       const d = r.decision ? DECISION[r.decision] : null;
-      return <Chip tono={d && d.tono !== "solido" ? d.tono : "neutro"}>Propuesta{d ? `: ${d.texto}` : ""}</Chip>;
+      return <Chip tono={d && d.tono !== "solido" ? d.tono : "neutro"}>Propuesta{d ? `: ${decisionConRegla(r, d.texto)}` : ""}</Chip>;
     }
     case "datos_no_disponibles":
       return <Chip tono="warn">Datos no disponibles</Chip>;
@@ -53,7 +58,7 @@ export function textoResultado(r: ResultadoActivo | null): string {
     case "sin_senal":
       return "Sin señal";
     case "propuesta":
-      return `Propuesta${r.decision ? `: ${DECISION[r.decision].texto}` : ""}`;
+      return `Propuesta${r.decision ? `: ${decisionConRegla(r, DECISION[r.decision].texto)}` : ""}`;
     case "datos_no_disponibles":
       return "Datos no disponibles";
     case "error":

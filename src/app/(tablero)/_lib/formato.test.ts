@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   confianza,
   cripto,
+  desgloseR11,
   dominio,
   hora,
   horaConSegundos,
+  nombreCorto,
   pct,
   reglaPrincipal,
   relativo,
@@ -61,5 +63,16 @@ describe("formato es-MX", () => {
     expect(reglaPrincipal({ regla: "R6", observado: "activa", limite: "inactiva" })).toBe(
       "R6 pausa automática: activa (límite: inactiva)",
     );
+  });
+  it("R11: texto de S2 con el activo, desglose de S3 y nombre corto de la banda (AC-UX-1, 2, 5)", () => {
+    expect(reglaPrincipal({ regla: "R11", observado: "2", limite: "1" }, "BTC/USD")).toBe("R11 entradas abiertas de BTC/USD: 2 > límite 1");
+    expect(reglaPrincipal({ regla: "R3", observado: "1001.00 USD", limite: "1000.00 USD" }, "BTC/USD")).toBe(
+      "R3 tamaño: 1,001.00 USD > límite 1,000.00 USD",
+    );
+    expect(desgloseR11("2", "1")).toBe("1 abierta + esta propuesta = 2 · límite 1");
+    expect(desgloseR11("1", "1")).toBe("0 abiertas + esta propuesta = 1 · límite 1");
+    expect(desgloseR11("4", "2")).toBe("3 abiertas + esta propuesta = 4 · límite 2");
+    expect(nombreCorto("R11")).toBe("R11 entradas abiertas");
+    expect(nombreCorto("R8")).toBe("R8 pausa manual");
   });
 });
