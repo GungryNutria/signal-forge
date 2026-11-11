@@ -31,14 +31,14 @@ const Precio = ({ lote }: { lote: LoteAbierto }) =>
   lote.precioActual === null ? <NoDisponible /> : <Monto texto={usd(lote.precioActual)} />;
 
 /** AC-UX-6: entradas abiertas por activo frente al tope. Neutro: en el tope solo dice qué pasará, sin alerta. */
-function EntradasAbiertas({ filas, tope }: { filas: { activo: string; n: number }[]; tope: number }) {
+function EntradasAbiertas({ filas, tope }: { filas: { activo: string; n: number }[]; tope: number | null }) {
   if (filas.length === 0) return null;
   return (
     <ul aria-label="Entradas abiertas por activo" data-entradas-abiertas className="mb-3 flex flex-col gap-1 text-sm">
       {filas.map(({ activo, n }) => (
         <li key={activo} className="[overflow-wrap:anywhere]">
-          <span className="font-semibold">{activo}</span> · {n} {n === 1 ? "entrada abierta" : "entradas abiertas"} · tope {tope}
-          {n >= tope ? ": las entradas nuevas se rechazan por R11" : ""}
+          <span className="font-semibold">{activo}</span> · {n} {n === 1 ? "entrada abierta" : "entradas abiertas"} · {tope === null ? "tope no disponible" : `tope ${tope}`}
+          {tope !== null && n >= tope ? ": las entradas nuevas se rechazan por R11" : ""}
         </li>
       ))}
     </ul>

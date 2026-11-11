@@ -441,7 +441,11 @@ describe("spec 003: R11 y deslizamiento en el read model", () => {
     process.env.MAX_ENTRADAS_ABIERTAS_POR_ACTIVO = "2";
     expect((await resumenCartera(ahora)).topeEntradasPorActivo).toBe(2);
     process.env.MAX_ENTRADAS_ABIERTAS_POR_ACTIVO = "x";
-    await expect(resumenCartera(ahora)).rejects.toThrow("MAX_ENTRADAS_ABIERTAS_POR_ACTIVO inválida");
+    // N-1: con N inválido solo falta el tope; el resto del read model sigue sirviendo.
+    const mal = await resumenCartera(ahora);
+    expect(mal.topeEntradasPorActivo).toBeNull();
+    expect(mal.entradasAbiertas).toEqual([{ activo: "BTC/USD", n: 3 }, { activo: "SOL/USD", n: 1 }]);
+    expect(mal.saldoVirtualUsd).toBeDefined();
   });
 
   it("S1: sin entradas abiertas la lista va vacía y no se inventan ceros", async () => {

@@ -97,7 +97,13 @@ export async function resumenCartera(ahora: Date): Promise<ResumenCartera> {
   const saldoC = SALDO_INICIAL_C + base.realizadoTotalC;
   const [{ hay }] = await filas<{ hay: boolean }>(sql`SELECT EXISTS (SELECT 1 FROM ejecuciones) AS hay`);
   const abiertas = await entradasAbiertasPorActivo(obtenerDb());
-  const topeEntradasPorActivo = leerMaxEntradasAbiertas(); // lanza si es inválida: el bloque muestra su error normal
+  // N inválido no debe tumbar el resto del read model: solo el renglón de tope de Posiciones lo refleja.
+  let topeEntradasPorActivo: number | null;
+  try {
+    topeEntradasPorActivo = leerMaxEntradasAbiertas();
+  } catch {
+    topeEntradasPorActivo = null;
+  }
   return {
     saldoVirtualUsd: deCentavos(saldoC),
     valorCarteraUsd: completo ? deCentavos(saldoC + noRealizadoC) : null,

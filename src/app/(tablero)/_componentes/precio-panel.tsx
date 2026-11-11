@@ -128,7 +128,7 @@ function DeMarca({ m, serie, ultimo, ahora }: { m: Marca; serie: SeriePrecio; ul
         <Fila t="Nivel cruzado">{usd(s.nivel)}</Fila>
         <Fila t="PnL neto">
           <span className={COLOR[signo(s.pnlNetoUsd)]}>
-            {usdConSigno(s.pnlNetoUsd)} ({pct(s.pnlNetoPct, 2)})
+            {usdConSigno(s.pnlNetoUsd)} ({pct(Number(s.pnlNetoPct) * 100, 2)})
           </span>
         </Fila>
         <Fila t="Duración">{duracionTexto(s.duracionS)}</Fila>

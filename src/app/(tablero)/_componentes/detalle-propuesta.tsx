@@ -130,7 +130,7 @@ function ReglasRiesgo({ reglas, conjunto }: { reglas: ReglaDetalle[]; conjunto: 
           {conjunto ? <p className="text-sm text-muted">Conjunto aplicado: {CONJUNTO[conjunto]}</p> : null}
         </div>
         {reglas.length > 0 ? (
-          <p className="text-sm text-muted">{fallan === 0 ? "Todas cumplen o no aplican" : `${fallan} no se cumplen`}</p>
+          <p className="text-sm text-muted">{fallan === 0 ? "Todas cumplen o no aplican" : `${fallan} no se ${fallan === 1 ? "cumple" : "cumplen"}`}</p>
         ) : null}
       </div>
       {reglas.length === 0 ? (
@@ -324,7 +324,7 @@ function Etiqueta({ d }: { d: DetallePropuesta }) {
               <Dato etiqueta="PnL neto">
                 <span className={COLOR[signo(e.pnlNetoUsd)]}>
                   {usdConSigno(e.pnlNetoUsd)}
-                  {e.pnlNetoPct !== null ? ` (${pct(e.pnlNetoPct, 2)})` : ""}
+                  {e.pnlNetoPct !== null ? ` (${pct(Number(e.pnlNetoPct) * 100, 2)})` : ""}
                 </span>
               </Dato>
             ) : null}

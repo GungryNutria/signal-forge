@@ -47,7 +47,7 @@ export async function metricas(f: { activo?: Activo } = {}): Promise<Metricas> {
           GROUP BY 1, 2 ORDER BY count(*) DESC, 2`,
     ),
     filas<{ n: string }>(
-      sql`SELECT count(*)::text AS n FROM propuestas p WHERE p.reglas @> '[{"regla":"R11"}]'::jsonb ${dePropuesta}`,
+      sql`SELECT count(*)::text AS n FROM propuestas p WHERE p.reglas @> '[{"regla":"R11","aplica":true}]'::jsonb ${dePropuesta}`,
     ),
   ]);
 

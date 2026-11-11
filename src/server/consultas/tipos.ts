@@ -106,8 +106,8 @@ export type ResumenCartera = {
   vacio: boolean;
   /** REQ-22. Solo activos con ≥ 1 entrada abierta (REQ-2), en el orden de ACTIVOS. */
   entradasAbiertas: { activo: Activo; n: number }[];
-  /** N vigente leído del entorno en este render. */
-  topeEntradasPorActivo: number;
+  /** N vigente leído del entorno en este render; `null` si `MAX_ENTRADAS_ABIERTAS_POR_ACTIVO` es inválida. */
+  topeEntradasPorActivo: number | null;
 };
 
 export type ReglaPrincipal = { regla: string; observado: string; limite: string };

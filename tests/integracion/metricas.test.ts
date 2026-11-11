@@ -94,7 +94,7 @@ describe("metricas()", () => {
 });
 
 describe("r11Evaluadas (AC-UX-4)", () => {
-  it("cuenta las propuestas con R11 en sus reglas, con el filtro de activo; las anteriores a R11 no cuentan", async () => {
+  it("cuenta las propuestas donde R11 se evaluó (cumple o incumple; la venta con no aplica no cuenta), con el filtro de activo; las anteriores a R11 no cuentan", async () => {
     await vaciarBase();
     expect((await metricas()).r11Evaluadas).toBe(0);
 
@@ -102,8 +102,8 @@ describe("r11Evaluadas (AC-UX-4)", () => {
     await sembrar(pool, "r11-casos", AHORA);
     await sembrar(pool, "r11-anterior", AHORA);
     await sembrar(pool, "r11-tope", AHORA);
-    expect((await metricas()).r11Evaluadas).toBe(4);
-    expect((await metricas({ activo: "BTC/USD" })).r11Evaluadas).toBe(4);
+    expect((await metricas()).r11Evaluadas).toBe(3);
+    expect((await metricas({ activo: "BTC/USD" })).r11Evaluadas).toBe(3);
     expect((await metricas({ activo: "SOL/USD" })).r11Evaluadas).toBe(0);
   });
 

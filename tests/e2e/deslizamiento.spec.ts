@@ -51,6 +51,9 @@ async function afirmarSalida(page: Page, c: CierreConocido, nivel: "Stop loss" |
   expect(valores[4]).toBe(`${conSigno(c.deslizamientoUsd)} · ${pct(c.deslizamientoPct)}`);
   expect(valores[5]).toBe(`${conSigno(c.comisionUsd)} · ${pct(c.comisionPct)}`);
   expect(valores[6]).toBe(`${conSigno(c.pnlNetoUsd)} · ${pct(c.pnlNetoPct)}`);
+  // B-1: la Etiqueta de resultado muestra el mismo porcentaje que el desglose (pnl_neto_pct se guarda como fracción).
+  const etiqueta = page.locator("section, div").filter({ has: page.getByRole("heading", { name: "Etiqueta de resultado", exact: true }) }).last();
+  await expect(etiqueta).toContainText(`${conSigno(c.pnlNetoUsd)} (${pct(c.pnlNetoPct)})`);
   // Los tres primeros renglones suman el PnL neto mostrado (hasta 0.01 USD por redondeo).
   const usdDe = (t: string) => Number(t.split(" USD")[0].replace("−", "-").replace("+", "").replace(/,/g, ""));
   const suma = usdDe(valores[3]) + usdDe(valores[4]) + usdDe(valores[5]);
@@ -77,6 +80,8 @@ for (const m of MEDIDAS) {
       expect(llenadoMedido).toContain(usd(Number(K!.stop.llenado)));
       const valores = await afirmarSalida(page, K!.stop, "Stop loss");
       expect(valores[1]).toMatch(new RegExp(`^${usd(Number(K!.stop.disparo))} · \\d{1,2} \\w+, \\d{2}:\\d{2}:\\d{2} \\(UTC−6\\) · \\d{1,2} \\w+, \\d{2}:\\d{2}:\\d{2} UTC$`));
+      await expect(page.getByRole("heading", { name: "Etiqueta de resultado", exact: true })).toBeVisible();
+      await expect(page.locator("main")).toContainText("(−2.99 %)"); // B-1: del stop sembrado, no −0.03 %
       await capturar(page, m.ancho, "s3_salida_stop");
       await sinScrollHorizontal(page);
       expect(await graves(page)).toEqual([]);

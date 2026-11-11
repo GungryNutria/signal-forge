@@ -66,6 +66,7 @@ for (const m of MEDIDAS) {
       await expect(primera).toContainText("R11 entradas abiertas por activo");
       await expect(primera).toContainText("Incumple");
       await expect(primera).toContainText("1 abierta + esta propuesta = 2 · límite 1");
+      await expect(vis(page.getByText("1 no se cumple", { exact: true }))).toBeVisible(); // NB-1: singular
       await capturar(page, m.ancho, "s3_r11_incumple");
       await sinScrollHorizontal(page);
       expect(await graves(page)).toEqual([]);
