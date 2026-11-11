@@ -6,12 +6,13 @@ const json = (status: number, cuerpo: unknown) => new Response(JSON.stringify(cu
 
 function datos(responder: (url: string, n: number) => Response | Promise<Response>, timeoutMs = 20) {
   const urls: string[] = [];
+  const cabeceras: Record<string, string>[] = [];
   const fetchFn = (async (url: string, init: RequestInit) => {
     urls.push(url);
-    expect(init.headers).not.toHaveProperty("APCA-API-SECRET-KEY");
+    cabeceras.push(init.headers as Record<string, string>);
     return responder(url, urls.length);
   }) as unknown as typeof fetch;
-  return { d: new AlpacaDatos({ fetch: fetchFn, timeoutMs }), urls };
+  return { d: new AlpacaDatos({ keyId: "id-prueba", secretKey: "secreto-prueba", fetch: fetchFn, timeoutMs }), urls, cabeceras };
 }
 
 const barra = (t: string, c: number) => ({ t, o: c, h: c, l: c, c, v: 1.5, n: 3, vw: c });
@@ -70,6 +71,29 @@ describe("AlpacaDatos.barras30m", () => {
   it("forma inesperada lanza respuesta_invalida", async () => {
     const { d } = datos(() => json(200, { hola: 1 }));
     await expect(d.barras30m("BTC/USD", new Date(0), new Date(1))).rejects.toMatchObject({ causa: "respuesta_invalida" });
+  });
+});
+
+describe("AlpacaDatos autenticación", () => {
+  it("barras y snapshots llevan las dos cabeceras APCA", async () => {
+    const { d, cabeceras } = datos((url) => (url.includes("/bars") ? json(200, { bars: {} }) : json(200, { snapshots: {} })));
+    await d.barras30m("BTC/USD", new Date(0), new Date(1));
+    await d.snapshots(["BTC/USD"]);
+    expect(cabeceras).toHaveLength(2);
+    for (const c of cabeceras) expect(c).toMatchObject({ "APCA-API-KEY-ID": "id-prueba", "APCA-API-SECRET-KEY": "secreto-prueba" });
+  });
+
+  it("un 429 se reintenta una vez", async () => {
+    const { d, urls } = datos((_, n) => (n === 1 ? json(429, { message: "too many requests." }) : json(200, { bars: {} })));
+    await expect(d.barras30m("BTC/USD", new Date(0), new Date(1))).resolves.toEqual([]);
+    expect(urls).toHaveLength(2);
+  });
+
+  it("el error de un 429 persistente no contiene las llaves", async () => {
+    const { d } = datos(() => json(429, { message: "id-prueba secreto-prueba" }));
+    const e = await d.barras30m("BTC/USD", new Date(0), new Date(1)).catch((x: Error) => x);
+    expect(e).toMatchObject({ causa: "4xx", status: 429 });
+    expect((e as Error).message).not.toMatch(/id-prueba|secreto-prueba/);
   });
 });
 

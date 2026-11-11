@@ -318,7 +318,7 @@ async function main() {
     const r = await ejecutarVigilante({
       pool,
       broker,
-      datos: new AlpacaDatos(),
+      datos: new AlpacaDatos({ keyId: env.APCA_API_KEY_ID, secretKey: env.APCA_API_SECRET_KEY }),
       ahora: () => new Date(),
       env,
       secretos: [env.APCA_API_SECRET_KEY, env.APCA_API_KEY_ID],

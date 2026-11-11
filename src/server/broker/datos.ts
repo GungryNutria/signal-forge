@@ -21,13 +21,18 @@ const RespuestaSnapshots = z.looseObject({
   ),
 });
 
-/** Datos de mercado públicos de Alpaca (sin autenticación): 10 s de timeout y 1 reintento ante fallos transitorios. */
+/**
+ * Datos de mercado de Alpaca, autenticados con las mismas llaves que el cliente de trading (sin ellas Alpaca limita
+ * por IP y responde 429): 10 s de timeout y 1 reintento ante fallos transitorios (red, 5xx y 429).
+ */
 export class AlpacaDatos implements DatosMercado {
   private readonly fetchFn: Fetch;
   private readonly timeoutMs: number;
   private readonly baseUrl: string;
+  private readonly cabeceras: Record<string, string>;
 
-  constructor(o: { fetch?: Fetch; timeoutMs?: number; baseUrl?: string } = {}) {
+  constructor(o: { keyId: string; secretKey: string; fetch?: Fetch; timeoutMs?: number; baseUrl?: string }) {
+    this.cabeceras = { accept: "application/json", "APCA-API-KEY-ID": o.keyId, "APCA-API-SECRET-KEY": o.secretKey };
     this.fetchFn = o.fetch ?? fetch;
     this.timeoutMs = o.timeoutMs ?? TIMEOUT_MS;
     this.baseUrl = o.baseUrl ?? URL_DATOS;
@@ -38,10 +43,10 @@ export class AlpacaDatos implements DatosMercado {
     let ultimo: ErrorBroker | undefined;
     for (let intento = 0; intento < 2; intento++) {
       try {
-        const r = await pedir(this.fetchFn, url, { method: "GET", headers: { accept: "application/json" } }, this.timeoutMs);
+        const r = await pedir(this.fetchFn, url, { method: "GET", headers: this.cabeceras }, this.timeoutMs);
         if (r.status < 400) return r.cuerpo;
         ultimo = new ErrorBroker(`Datos de mercado respondieron ${r.status}`, r.status >= 500 ? "5xx" : "4xx", r.status);
-        if (r.status < 500) break; // un 4xx no se arregla reintentando
+        if (r.status < 500 && r.status !== 429) break; // un 4xx no se arregla reintentando (salvo 429, transitorio)
       } catch (e) {
         if (!(e instanceof ErrorBroker)) throw e;
         ultimo = e;
