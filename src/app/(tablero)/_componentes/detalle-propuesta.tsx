@@ -104,6 +104,7 @@ const ESTADO_REGLA: Record<ReglaDetalle["estado"], { texto: string; tono: "pos" 
   cumple: { texto: "Cumple", tono: "pos" },
   incumple: { texto: "Incumple", tono: "neg" },
   no_aplica: { texto: "No aplica", tono: "neutro" },
+  no_evaluada: { texto: "No evaluada", tono: "neutro" }, // solo satisface el tipo; la presentación completa es T-4
 };
 // AC-UX-11: R2 solo aplica a ventas; cuando no aplica, el límite explica por qué.
 const limite = (r: ReglaDetalle) =>

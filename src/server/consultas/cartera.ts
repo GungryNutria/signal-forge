@@ -4,7 +4,10 @@ import { aCentavos, deCentavos } from "@/core/dinero";
 import { pnlNetoCentavos } from "@/core/pnl";
 import { pnlDia } from "@/core/riesgo";
 import { inicioDiaUtc } from "@/core/tiempo";
-import { SALDO_INICIAL_C } from "@/server/cartera";
+import { entradasAbiertasPorActivo, SALDO_INICIAL_C } from "@/server/cartera";
+import { obtenerDb } from "@/server/db/cliente";
+import { leerMaxEntradasAbiertas } from "@/server/env";
+import { ACTIVOS } from "@/core/activos";
 import type { LoteAbierto, ResumenCartera } from "./tipos";
 import { fallaInyectada, fecha, filas, iso, type Marca } from "./util";
 
@@ -93,6 +96,8 @@ export async function resumenCartera(ahora: Date): Promise<ResumenCartera> {
 
   const saldoC = SALDO_INICIAL_C + base.realizadoTotalC;
   const [{ hay }] = await filas<{ hay: boolean }>(sql`SELECT EXISTS (SELECT 1 FROM ejecuciones) AS hay`);
+  const abiertas = await entradasAbiertasPorActivo(obtenerDb());
+  const topeEntradasPorActivo = leerMaxEntradasAbiertas(); // lanza si es inválida: el bloque muestra su error normal
   return {
     saldoVirtualUsd: deCentavos(saldoC),
     valorCarteraUsd: completo ? deCentavos(saldoC + noRealizadoC) : null,
@@ -101,6 +106,8 @@ export async function resumenCartera(ahora: Date): Promise<ResumenCartera> {
     pnlAcumuladoUsd: deCentavos(base.realizadoTotalC),
     lotesAbiertos,
     vacio: !hay,
+    entradasAbiertas: ACTIVOS.filter((a) => (abiertas[a] ?? 0) > 0).map((a) => ({ activo: a, n: abiertas[a] })),
+    topeEntradasPorActivo,
   };
 }
 

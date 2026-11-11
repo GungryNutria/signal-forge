@@ -206,7 +206,38 @@ export async function detallePropuesta(id: string): Promise<DetallePropuesta | n
     observado: r.observado,
     limite: r.limite,
   }));
+  // D-4: el conjunto aplicado se deriva de `reglas`; las propuestas anteriores a R11 la muestran como no evaluada.
+  const reglasAplicadas = p.reglas === null ? null : reglas.some((r) => r.regla === "R11") ? "R1-R11" : "R1-R10";
+  if (reglasAplicadas === "R1-R10") reglas.push({ regla: "R11", estado: "no_evaluada", observado: "", limite: "" });
   reglas.sort((a, b) => Number(b.estado === "incumple") - Number(a.estado === "incumple"));
+
+  const [cierre] = p.lote_id && p.cerrado_en
+    ? await filas<{
+        motivo_cierre: "stop_loss" | "take_profit";
+        nivel: string;
+        precio_disparo: string | null;
+        precio_disparo_ts: Marca | null;
+        precio_salida: string;
+        movimiento_usd: string;
+        movimiento_pct: string;
+        deslizamiento_usd: string;
+        deslizamiento_pct: string;
+        comision_usd: string;
+        comision_pct: string;
+        pnl_neto_usd: string;
+        pnl_neto_pct: string;
+      }>(
+        sql`SELECT vc.motivo_cierre, n.s::text AS nivel, vc.precio_disparo::text AS precio_disparo, vc.precio_disparo_ts,
+            vc.precio_salida::text AS precio_salida, vc.movimiento_usd::text AS movimiento_usd,
+            round(n.s / vc.precio_entrada - 1, 6)::text AS movimiento_pct, vc.deslizamiento_usd::text AS deslizamiento_usd,
+            vc.deslizamiento_pct::text AS deslizamiento_pct, vc.comision_usd::text AS comision_usd,
+            round(vc.comision_usd / vc.nocional_entrada_usd, 6)::text AS comision_pct, vc.pnl_neto_usd::text AS pnl_neto_usd,
+            vc.pnl_neto_pct::text AS pnl_neto_pct
+            FROM v_cierres vc JOIN lotes l ON l.id = vc.lote_id
+            CROSS JOIN LATERAL (SELECT CASE WHEN vc.motivo_cierre = 'stop_loss' THEN l.stop_loss ELSE l.take_profit END AS s) n
+            WHERE vc.lote_id = ${p.lote_id}::uuid`,
+      )
+    : [];
 
   const [ejecucion] = p.ejecucion_id
     ? await filas<{ id: string; ranura: Marca; inicio: Marca; version_regla: string }>(
@@ -237,6 +268,24 @@ export async function detallePropuesta(id: string): Promise<DetallePropuesta | n
     versionRegla: p.version_regla,
     reglaEntrada: p.justificacion,
     reglas,
+    reglasAplicadas,
+    salida: cierre
+      ? {
+          motivo: cierre.motivo_cierre,
+          nivel: cierre.nivel,
+          precioDisparo: cierre.precio_disparo,
+          precioDisparoEn: cierre.precio_disparo_ts ? iso(cierre.precio_disparo_ts) : null,
+          precioLlenado: cierre.precio_salida,
+          movimientoUsd: cierre.movimiento_usd,
+          movimientoPct: cierre.movimiento_pct,
+          deslizamientoUsd: cierre.deslizamiento_usd,
+          deslizamientoPct: cierre.deslizamiento_pct,
+          comisionUsd: cierre.comision_usd,
+          comisionPct: cierre.comision_pct,
+          pnlNetoUsd: cierre.pnl_neto_usd,
+          pnlNetoPct: cierre.pnl_neto_pct,
+        }
+      : null,
     ordenes: ordenesVista,
     lote: p.lote_id
       ? {

@@ -34,6 +34,7 @@ describe("metricas()", () => {
       porMotivo: [],
       aprobadas: 0,
       rechazadas: 0,
+      r11Evaluadas: 0,
     });
   });
 
@@ -89,5 +90,28 @@ describe("metricas()", () => {
     await sembrar(pool, "ejecutada-y-rechazada", AHORA); // TP +17.40 y luego SL -12.45
     const m = await metricas();
     expect(m.drawdownMax?.pct).toMatch(/^-\d+\.\d{2}$/);
+  });
+});
+
+describe("r11Evaluadas (AC-UX-4)", () => {
+  it("cuenta las propuestas con R11 en sus reglas, con el filtro de activo; las anteriores a R11 no cuentan", async () => {
+    await vaciarBase();
+    expect((await metricas()).r11Evaluadas).toBe(0);
+
+    // r11-casos: 4 propuestas de BTC con las 11 reglas. r11-anterior: 2 de BTC con 10. r11-tope: 3 de BTC y 1 de SOL con 10.
+    await sembrar(pool, "r11-casos", AHORA);
+    await sembrar(pool, "r11-anterior", AHORA);
+    await sembrar(pool, "r11-tope", AHORA);
+    expect((await metricas()).r11Evaluadas).toBe(4);
+    expect((await metricas({ activo: "BTC/USD" })).r11Evaluadas).toBe(4);
+    expect((await metricas({ activo: "SOL/USD" })).r11Evaluadas).toBe(0);
+  });
+
+  it("en metricas-conocidas, todas las propuestas con riesgo (10 de 11) llevan R11", async () => {
+    await vaciarBase();
+    await sembrar(pool, "metricas-conocidas", AHORA);
+    expect((await metricas()).r11Evaluadas).toBe(10);
+    expect((await metricas({ activo: "BTC/USD" })).r11Evaluadas).toBe(6);
+    expect((await metricas({ activo: "SOL/USD" })).r11Evaluadas).toBe(4);
   });
 });
