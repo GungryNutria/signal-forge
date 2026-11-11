@@ -7,7 +7,8 @@ import { abrirPool } from "./arnes";
 export const AHORA = new Date("2026-11-06T12:00:00Z");
 export const URL_REAL = "https://api.alpaca.markets";
 
-export function crearEntorno(env: Partial<CtxPropuesta["env"]> = {}) {
+/** `max`: N de R11. Por defecto alto, para que los tests de otras reglas puedan abrir varias entradas del mismo activo. */
+export function crearEntorno(env: Partial<CtxPropuesta["env"]> = {}, max = 100) {
   const pool = abrirPool(12);
   const broker = new BrokerSimulado();
   broker.precios = { "BTC/USD": 100_000, "SOL/USD": 200 };
@@ -15,6 +16,7 @@ export function crearEntorno(env: Partial<CtxPropuesta["env"]> = {}) {
     db: drizzle(pool),
     broker,
     ahora: () => AHORA,
+    maxEntradasAbiertasPorActivo: max,
     env: { APCA_API_BASE_URL: "https://paper-api.alpaca.markets", TRADING_PAUSADO: "false", ...env },
     esperar: async () => {},
   };

@@ -213,10 +213,10 @@ describe("S1 a S3 con una ejecutada y una rechazada (AC-21)", () => {
     expect(filas.find((f) => f.estado === "cerrada_sl")?.pnlUsd).toBe("-12.45");
   });
 
-  it("detalle de la rechazada: R1 a R10 con las incumplidas primero", async () => {
+  it("detalle de la rechazada: R1 a R11 con las incumplidas primero", async () => {
     const id = (await listarPropuestas({ decision: "rechazada" })).filas[0].id;
     const d = (await detallePropuesta(id))!;
-    expect(d.reglas).toHaveLength(10);
+    expect(d.reglas).toHaveLength(11);
     expect(d.reglas[0]).toMatchObject({ regla: "R3", estado: "incumple" });
     expect(d.reglas.slice(1).every((r) => r.estado !== "incumple")).toBe(true);
     expect(d.reglas.find((r) => r.regla === "R2")?.estado).toBe("no_aplica");

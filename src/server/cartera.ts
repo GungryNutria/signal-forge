@@ -14,6 +14,26 @@ async function filas<T>(db: Consultable, consulta: ReturnType<typeof sql>): Prom
 }
 
 /**
+ * REQ-2: entradas abiertas por activo = lotes sin cierre + entradas vivas que aún no tienen lote (mismo filtro
+ * que la exposición pendiente de `calcularCartera`). No mira quién propuso. Solo activos con al menos una.
+ */
+export async function entradasAbiertasPorActivo(db: Consultable): Promise<Record<string, number>> {
+  const r = await filas<{ activo: string; n: number }>(
+    db,
+    sql`SELECT activo, count(*)::int AS n FROM (
+          SELECT l.activo FROM lotes l
+           WHERE NOT EXISTS (SELECT 1 FROM cierres_lote c WHERE c.lote_id = l.id)
+          UNION ALL
+          SELECT o.activo FROM ordenes o
+           WHERE o.tramo = 'entrada'
+             AND NOT EXISTS (SELECT 1 FROM lotes l WHERE l.orden_entrada_id = o.id)
+             AND ${ULTIMO_EVENTO} IN ('pendiente_envio','enviada','aceptada','parcial','desconocido')
+        ) x GROUP BY activo`,
+  );
+  return Object.fromEntries(r.map((f) => [f.activo, f.n]));
+}
+
+/**
  * `EstadoCartera` de plan.md §Riesgo, calculado desde la base. Si el PnL del día cruza -3 % y aún no hay evento
  * de hoy, inserta `pausa_automatica` (REQ-31). Debe correr dentro de la transacción que tiene el candado de decisión.
  */
@@ -97,5 +117,6 @@ export async function calcularCartera(
     pausaAutomatica,
     pausaManual,
     ordenesDesconocidas: desconocidas,
+    entradasAbiertasPorActivo: await entradasAbiertasPorActivo(db),
   };
 }

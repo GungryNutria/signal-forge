@@ -129,6 +129,7 @@ function fotoDe(activo: Activo, evaluadaEn: Date, resultado: Resultado, inv?: In
       exposicionTotalC: 0,
       exposicionPorActivoC: { "BTC/USD": 0, "SOL/USD": 0 },
       lotesAbiertos: 0,
+      entradasAbiertasPorActivo: { "BTC/USD": 0, "SOL/USD": 0 },
       entradasHoy: 0,
       pnlDiaC: 0,
     },
@@ -228,9 +229,10 @@ const ESTADO_BASE: EstadoCartera = {
   pausaAutomatica: false,
   pausaManual: false,
   ordenesDesconocidas: {},
+  entradasAbiertasPorActivo: {},
 };
 
-/** Las diez reglas tal como las calcula el sistema, para un caso y un estado de cartera dados. */
+/** Las once reglas tal como las calcula el sistema, para un caso y un estado de cartera dados. */
 function reglasDe(
   p: { activo: string; lado?: "buy" | "sell"; nocional?: number; cantidad?: number; tipo?: string },
   estado: Partial<EstadoCartera> = {},
@@ -248,7 +250,7 @@ function reglasDe(
     version_regla: TENDENCIA_SMA_V1.version,
     justificacion: { entradas: {}, resultado: {} },
   } as PropuestaV1;
-  return evaluarRiesgo(propuesta, { ...ESTADO_BASE, ...estado }).reglas;
+  return evaluarRiesgo(propuesta, { ...ESTADO_BASE, ...estado }, { maxEntradasAbiertasPorActivo: 1 }).reglas;
 }
 
 async function propuesta(

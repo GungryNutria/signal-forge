@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
 import type { Pool } from "pg";
-import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { tsPosteriores } from "@/core/foto";
 import { ejecutarCiclo, type DepsCiclo } from "@/procesos/ciclo";
+import { ejecutarVigilante } from "@/procesos/vigilante";
 import { BrokerSimulado, DatosSimulados } from "@/server/broker/simulado";
 import type { Barra } from "@/server/broker/tipos";
 import { abrirPool, reiniciarBase } from "./arnes";
@@ -64,6 +65,7 @@ async function reiniciar(opciones: Parameters<typeof crear>[0] = {}) {
 
 beforeEach(() => reiniciar());
 afterAll(() => e?.pool.end());
+afterEach(() => vi.unstubAllEnvs());
 
 describe("ciclo con señal y sin señal (AC-7, AC-31)", () => {
   it("señal en los dos activos: 2 propuestas ejecutadas, ligadas a su evaluación, con clave por ranura", async () => {
@@ -184,7 +186,7 @@ describe("foto (AC-18, AC-29, REQ-23, REQ-24, REQ-40)", () => {
     e.datos.instantaneas["BTC/USD"] = { ...e.datos.instantaneas["BTC/USD"]!, tsTrade: new Date(AHORA.getTime() + 5_000) };
     await ejecutarCiclo(e.deps);
     for (const f of await q("SELECT activo, evaluada_en, foto FROM evaluaciones ORDER BY activo")) {
-      expect(f.foto.version).toBe("foto-v1");
+      expect(f.foto.version).toBe("foto-v2");
       expect(Object.keys(f.foto).sort()).toEqual(["cartera", "investigacion", "mercado", "momento", "regla", "version"]);
       expect(f.foto.regla.resultado.senal).toBe(true);
       expect(f.foto.regla.entradas.closes).toHaveLength(21);
@@ -247,5 +249,66 @@ describe("secretos y plazo (AC-4, RNF-11)", () => {
     const [c] = await q("SELECT estado, error FROM ejecuciones_cierre");
     expect(c).toMatchObject({ estado: "error", error: "plazo interno agotado" });
     expect(await q("SELECT 1 FROM eventos WHERE tipo = 'error_ciclo'")).toHaveLength(1);
+  });
+});
+
+describe("R11 en el ciclo (spec 003)", () => {
+  /** Ciclo en la ranura `k` (30 min después de AHORA cada una), con barras y quote al día en ese momento. */
+  const cicloEn = (k: number) => {
+    const t = new Date(AHORA.getTime() + k * 30 * MIN);
+    e.datos.barras = { "BTC/USD": barras(t, "sube", 100_000), "SOL/USD": barras(t, "baja", 200) };
+    const quote = { bid: 99_999, ask: 100_001, ultimo: 100_000, tsQuote: new Date(t.getTime() - 10_000), tsTrade: new Date(t.getTime() - 20_000) };
+    e.datos.instantaneas = { "BTC/USD": quote, "SOL/USD": { ...quote, bid: 199, ask: 201, ultimo: 200 } };
+    return ejecutarCiclo({ ...e.deps, ahora: () => t });
+  };
+
+  it("AC-6: 8 ciclos seguidos con señal de BTC: 1 ejecutada y 7 rechazadas por R11, las 8 con evaluación y foto; tras el stop, la siguiente se ejecuta", async () => {
+    for (let k = 0; k < 8; k++) await cicloEn(k);
+    const ps = await q("SELECT decision, reglas_incumplidas, evaluacion_id FROM propuestas WHERE activo = 'BTC/USD' ORDER BY recibida_en, id");
+    expect(ps.map((p) => p.decision)).toEqual(["ejecutada", ...Array(7).fill("rechazada")]);
+    for (const p of ps.slice(1)) expect(p.reglas_incumplidas).toEqual(["R11"]);
+    const evs = await q("SELECT foto FROM evaluaciones WHERE activo = 'BTC/USD'");
+    expect(evs).toHaveLength(8);
+    for (const ev of evs) expect(ev.foto.version).toBe("foto-v2");
+    expect(e.broker.registradas).toHaveLength(1);
+    expect(await q("SELECT 1 FROM lotes")).toHaveLength(1);
+
+    // El vigilante cierra el lote por stop y la siguiente señal vuelve a entrar.
+    const t = new Date(AHORA.getTime() + 8 * 30 * MIN);
+    e.broker.precios = { "BTC/USD": 98_000 };
+    e.datos.instantaneas = { "BTC/USD": { bid: 97_999, ask: 98_001, ultimo: 98_000, tsQuote: t, tsTrade: t }, "SOL/USD": { bid: 199, ask: 201, ultimo: 200, tsQuote: t, tsTrade: t } };
+    const v = await ejecutarVigilante({ pool: e.pool, broker: e.broker, datos: e.datos, ahora: () => t, env: e.deps.env, log: () => {} });
+    expect(v.cierres).toBe(1);
+    e.broker.precios = { "BTC/USD": 100_000 };
+    await cicloEn(9);
+    expect((await q("SELECT decision FROM propuestas WHERE activo = 'BTC/USD' ORDER BY recibida_en DESC, id DESC LIMIT 1"))[0].decision).toBe("ejecutada");
+  });
+
+  it("AC-9: con N = 2 la segunda entrada pasa, la tercera no, y cada propuesta registra el límite '2'", async () => {
+    vi.stubEnv("MAX_ENTRADAS_ABIERTAS_POR_ACTIVO", "2");
+    for (let k = 0; k < 3; k++) await cicloEn(k);
+    const ps = await q("SELECT decision, reglas FROM propuestas WHERE activo = 'BTC/USD' ORDER BY recibida_en, id");
+    expect(ps.map((p) => p.decision)).toEqual(["ejecutada", "ejecutada", "rechazada"]);
+    for (const p of ps) expect(p.reglas.find((r: { regla: string }) => r.regla === "R11").limite).toBe("2");
+  });
+
+  it.each(["0", "-1", "1.5", "x"])("AC-9: N inválido (%j): la ejecución termina en error sin evaluar, proponer ni tocar al broker", async (v) => {
+    vi.stubEnv("MAX_ENTRADAS_ABIERTAS_POR_ACTIVO", v);
+    const r = await cicloEn(0);
+    expect(r.estado).toBe("error");
+    expect(await q("SELECT 1 FROM propuestas")).toHaveLength(0);
+    expect(e.broker.llamadas).toHaveLength(0);
+    const [c] = await q("SELECT estado, error FROM ejecuciones_cierre");
+    expect(c).toMatchObject({ estado: "error", error: "MAX_ENTRADAS_ABIERTAS_POR_ACTIVO inválida" });
+  });
+
+  it("AC-10: la foto lleva entradas_abiertas_por_activo con los dos activos", async () => {
+    await cicloEn(0); // abre BTC y SOL (SOL "baja" no propone: queda en 0)
+    await cicloEn(1);
+    const fotos = await q("SELECT foto FROM evaluaciones WHERE activo = 'BTC/USD' ORDER BY evaluada_en");
+    expect(fotos.map((f) => f.foto.cartera.entradas_abiertas_por_activo)).toEqual([
+      { "BTC/USD": 0, "SOL/USD": 0 },
+      { "BTC/USD": 1, "SOL/USD": 0 },
+    ]);
   });
 });

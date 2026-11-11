@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Pool } from "pg";
-import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ejecutarVigilante, type DepsVigilante } from "@/procesos/vigilante";
 import { DatosSimulados } from "@/server/broker/simulado";
 import type { Snapshot } from "@/server/broker/tipos";
@@ -42,6 +42,7 @@ beforeEach(async () => {
   ponerBid(100_000);
 });
 afterAll(() => e?.pool.end());
+afterEach(() => vi.unstubAllEnvs());
 
 describe("protecciones (AC-16, REQ-17, REQ-18)", () => {
   it("sin tocar ningún nivel no vende", async () => {
@@ -246,5 +247,20 @@ describe("candado, entorno y secretos", () => {
     const r = await ejecutarVigilante(deps({ plazoMs: 100 }));
     expect(r.estado).toBe("error");
     expect(await q("SELECT 1 FROM eventos WHERE tipo = 'error_vigilante'")).toHaveLength(1);
+  });
+});
+
+describe("R11 no afecta a las salidas (spec 003, AC-7, AC-9, RNF-4)", () => {
+  it("AC-7: con 4 entradas de BTC abiertas (por encima de N = 1) y N inválido en el entorno, el vigilante cierra las 4 por stop y R11 no crea órdenes", async () => {
+    vi.stubEnv("MAX_ENTRADAS_ABIERTAS_POR_ACTIVO", "x"); // el vigilante ni lo lee
+    for (let i = 0; i < 4; i++) expect((await abrir()).decision).toBe("ejecutada"); // el contexto de pruebas tiene un N alto
+    const antes = (await q("SELECT 1 FROM ordenes WHERE tramo = 'entrada'")).length;
+    ponerBid(97_999);
+    e.broker.precios = { "BTC/USD": 98_000 };
+    const r = await ejecutarVigilante(deps());
+    expect(r).toMatchObject({ estado: "completada", ventas: 4, cierres: 4 });
+    expect(ventas()).toHaveLength(4);
+    expect(await q("SELECT 1 FROM ordenes WHERE tramo = 'entrada'")).toHaveLength(antes);
+    expect(await q("SELECT 1 FROM cierres_lote WHERE motivo_cierre = 'stop_loss'")).toHaveLength(4);
   });
 });

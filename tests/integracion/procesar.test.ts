@@ -43,7 +43,7 @@ describe("camino feliz", () => {
     const p = compra();
     const r = await procesarPropuesta(p, e.ctx);
     expect(r).toMatchObject({ decision: "ejecutada", motivo: "aprobada", repetida: false });
-    expect(r.reglas).toHaveLength(10);
+    expect(r.reglas).toHaveLength(11);
 
     const coid = clientOrderIdEntrada(p.clave_idempotencia);
     expect(coid).toMatch(/^sf-e-[0-9a-f]{32}$/);
@@ -84,7 +84,7 @@ describe("camino feliz", () => {
     });
     expect(f.huella_contenido).toMatch(/^[0-9a-f]{64}$/);
     expect(f.justificacion).toEqual(p.justificacion);
-    expect(f.reglas).toHaveLength(10);
+    expect(f.reglas).toHaveLength(11);
     expect(f.recibida_en.toISOString()).toBe(AHORA.toISOString());
   });
 
@@ -296,12 +296,90 @@ describe("entorno (AC-15)", () => {
 });
 
 describe("ventas en la etapa 1", () => {
-  it("una venta que pasa R1 a R10 queda en error venta_no_habilitada y no llega al broker", async () => {
+  it("una venta que pasa R1 a R11 queda en error venta_no_habilitada y no llega al broker", async () => {
     await procesarPropuesta(compra(), e.ctx);
     e.broker.llamadas.length = 0;
     const r = await procesarPropuesta(compra({ lado: "sell", nocional_usd: undefined, cantidad: 0.001 }), e.ctx);
     expect(r).toMatchObject({ decision: "error", motivo: "venta_no_habilitada", ordenId: null });
-    expect(r.reglas).toHaveLength(10);
+    expect(r.reglas).toHaveLength(11);
     expect(e.broker.llamadas).toHaveLength(0);
+  });
+});
+
+describe("R11 de punta a punta (spec 003)", () => {
+  // `e` ya viene con un N alto; aquí se usa el contexto con el N que cada caso pide.
+  const con = (max: number) => ({ ...e.ctx, maxEntradasAbiertasPorActivo: max });
+
+  it("AC-1: con una entrada abierta, la compra se rechaza solo por R11, sin tocar al broker", async () => {
+    await procesarPropuesta(compra(), con(1)); // abre el lote: 0 abiertas + 1 <= 1
+    e.broker.llamadas.length = 0;
+    const r = await procesarPropuesta(compra(), con(1));
+    expect(r).toMatchObject({ decision: "rechazada", motivo: "reglas_incumplidas", ordenId: null });
+    expect(reglasFalladas(r)).toEqual(["R11"]);
+    expect(r.reglas?.find((x) => x.regla === "R11")).toMatchObject({ observado: "2", limite: "1" });
+    expect(e.broker.llamadas).toHaveLength(0);
+    const [f] = await q("SELECT reglas_incumplidas FROM propuestas WHERE id = $1", [r.propuestaId]);
+    expect(f.reglas_incumplidas).toEqual(["R11"]);
+    expect(await q("SELECT 1 FROM ordenes")).toHaveLength(1);
+  });
+
+  it("AC-8: con 3 lotes abiertos y N = 1 se rechaza con observado '4'; cerrados los 3, se aprueba; los lotes no cambian", async () => {
+    for (let i = 0; i < 3; i++) await procesarPropuesta(compra(), con(100));
+    const lotes = await q("SELECT * FROM lotes ORDER BY id");
+    expect(lotes).toHaveLength(3);
+    const r = await procesarPropuesta(compra(), con(1));
+    expect(reglasFalladas(r)).toEqual(["R11"]);
+    expect(r.reglas?.find((x) => x.regla === "R11")?.observado).toBe("4");
+    expect(await q("SELECT * FROM lotes ORDER BY id")).toEqual(lotes);
+
+    for (const [i, l] of lotes.entries()) {
+      const [s] = await q(
+        `INSERT INTO ordenes (lote_id, tramo, client_order_id, activo, lado, cantidad)
+         VALUES ($1, 'salida', $2, 'BTC/USD', 'sell', 0.0049875) RETURNING id`,
+        [l.id, `sf-x-test-${i}`],
+      );
+      await q(
+        `INSERT INTO cierres_lote (lote_id, orden_salida_id, precio_salida, motivo_cierre, pnl_neto_usd, pnl_neto_pct, duracion_s, etiqueta_exito)
+         VALUES ($1, $2, 98000, 'stop_loss', -12.45, -0.0249, 0, 0)`,
+        [l.id, s.id],
+      );
+    }
+    expect((await procesarPropuesta(compra(), con(1))).decision).toBe("ejecutada");
+  });
+
+  it("AC-9: con N = 2 la propuesta registra el límite '2' y admite una segunda entrada", async () => {
+    await procesarPropuesta(compra(), con(2));
+    const r = await procesarPropuesta(compra(), con(2));
+    expect(r.decision).toBe("ejecutada");
+    expect(r.reglas?.find((x) => x.regla === "R11")).toMatchObject({ cumple: true, observado: "2", limite: "2" });
+    const [f] = await q("SELECT reglas FROM propuestas WHERE id = $1", [r.propuestaId]);
+    expect(f.reglas.find((x: { regla: string }) => x.regla === "R11").limite).toBe("2");
+    expect(reglasFalladas(await procesarPropuesta(compra(), con(2)))).toEqual(["R11"]);
+  });
+
+  it("AC-18: el reenvío de una propuesta ya ejecutada devuelve el original, aunque ahora R11 la rechazaría", async () => {
+    const p = compra();
+    const a = await procesarPropuesta(p, con(1));
+    expect(a.decision).toBe("ejecutada");
+    const b = await procesarPropuesta(p, con(1));
+    expect(b).toMatchObject({ repetida: true, decision: "ejecutada", propuestaId: a.propuestaId, ordenId: a.ordenId });
+    expect(reglasFalladas(b)).toEqual([]);
+    expect(await q("SELECT 1 FROM ordenes")).toHaveLength(1);
+    expect(await q("SELECT 1 FROM propuestas")).toHaveLength(1);
+  });
+
+  it("AC-19: el límite es el mismo para cualquier proponente, en los dos sentidos", async () => {
+    await procesarPropuesta(compra({ proponente: "tendencia-sma-v1" }), con(1));
+    const r = await procesarPropuesta(compra({ proponente: "decisor-simulado" }), con(1));
+    expect(reglasFalladas(r)).toEqual(["R11"]);
+
+    await reiniciarBase();
+    await procesarPropuesta(compra({ proponente: "decisor-simulado" }), con(1));
+    expect(reglasFalladas(await procesarPropuesta(compra({ proponente: "tendencia-sma-v1" }), con(1)))).toEqual(["R11"]);
+  });
+
+  it("AC-19: una propuesta que trae su propio límite es inválida y no llega al riesgo", async () => {
+    const r = await procesarPropuesta(compra({ max_entradas_abiertas: 99 }), con(1));
+    expect(r).toMatchObject({ decision: "rechazada", motivo: "propuesta_invalida", reglas: null });
   });
 });

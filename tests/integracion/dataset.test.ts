@@ -44,7 +44,7 @@ describe("dataset (AC-20)", () => {
     for (const f of filas) {
       for (const c of ["evaluacion_id", "ejecucion_id", "ranura", "evaluada_en", "activo", "version_regla", "resultado", "foto", "propuesta_id", "decision", "motivo", "lote_id", "etiqueta_estado", "motivo_cierre", "etiqueta_exito", "pnl_neto_usd", "pnl_neto_pct", "duracion_min"])
         expect(f).toHaveProperty(c);
-      expect((f.foto as { version: string }).version).toBe("foto-v1");
+      expect((f.foto as { version: string }).version).toBe("foto-v2");
     }
   });
 

@@ -24,3 +24,14 @@ export function cargarEnv(fuente: Record<string, string | undefined> = process.e
   }
   return r.data;
 }
+
+/**
+ * N de R11 (REQ-8). Ausente o vacío → 1. Inválido → lanza, sin el valor. Fuera de `esquemaEnv` a propósito (RNF-4):
+ * un valor mal escrito debe detener solo las entradas, nunca el vigilante, que llama a `cargarEnv`.
+ */
+export function leerMaxEntradasAbiertas(fuente: Record<string, string | undefined> = process.env): number {
+  const v = fuente.MAX_ENTRADAS_ABIERTAS_POR_ACTIVO;
+  if (v === undefined || v === "") return 1;
+  if (!/^[1-9]\d*$/.test(v) || !Number.isSafeInteger(Number(v))) throw new Error("MAX_ENTRADAS_ABIERTAS_POR_ACTIVO inválida");
+  return Number(v);
+}

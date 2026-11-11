@@ -5,12 +5,13 @@ import { inicioDiaUtc } from "@/core/tiempo";
 import type { EntradaFoto, InvestigacionAdjunta } from "@/core/foto";
 import { seleccionarVigente, VIGENCIA_MIN } from "@/core/investigacion";
 import { pnlDia } from "@/core/riesgo";
+import { entradasAbiertasPorActivo } from "@/server/cartera";
 import { investigaciones } from "@/server/db/esquema";
 
 const SALDO_INICIAL_C = 1_000_000;
 
 /**
- * Lo que la foto-v1 necesita de la cartera, solo lectura (a diferencia de `calcularCartera`, no inserta la
+ * Lo que la foto-v2 necesita de la cartera, solo lectura (a diferencia de `calcularCartera`, no inserta la
  * pausa automática). El no realizado usa el bid de este ciclo; si falta para un activo con lotes, va `null`.
  */
 export async function carteraParaFoto(
@@ -41,6 +42,9 @@ export async function carteraParaFoto(
   const exposicionPorActivoC = Object.fromEntries(ACTIVOS.map((a) => [a, 0])) as Record<Activo, number>;
   for (const l of abiertos) exposicionPorActivoC[l.activo as Activo] += l.nocionalEntradaC;
 
+  const abiertasPorActivo = await entradasAbiertasPorActivo(db);
+  const entradasAbiertas = Object.fromEntries(ACTIVOS.map((a) => [a, abiertasPorActivo[a] ?? 0])) as Record<Activo, number>;
+
   const realizadoHoyC = Number(cierres.hoy);
   const saldoVirtualC = SALDO_INICIAL_C + Number(cierres.total);
   const { pnlC, noRealizadoFaltante } = pnlDia(realizadoHoyC, abiertos, bid);
@@ -50,6 +54,7 @@ export async function carteraParaFoto(
     exposicionTotalC: abiertos.reduce((s, l) => s + l.nocionalEntradaC, 0),
     exposicionPorActivoC,
     lotesAbiertos: abiertos.length,
+    entradasAbiertasPorActivo: entradasAbiertas,
     entradasHoy: Number(n),
     pnlDiaC: noRealizadoFaltante ? null : pnlC,
   };

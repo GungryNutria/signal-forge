@@ -38,6 +38,8 @@ export type CtxPropuesta = {
   broker: Broker;
   ahora: () => Date;
   env: Pick<Env, "APCA_API_BASE_URL" | "TRADING_PAUSADO">;
+  /** N de R11 (REQ-8, REQ-21). Único punto de entrada del límite para cualquier proponente: lo fija el despliegue, no la propuesta. */
+  maxEntradasAbiertasPorActivo: number;
   /** Evaluación del ciclo que originó la propuesta (la liga T-6; `v_dataset` la une por aquí). */
   evaluacionId?: string;
   /** Pausa entre consultas de llenado; los tests la sustituyen. */
@@ -170,7 +172,7 @@ async function decidir(
 
   // 5. Riesgo (REQ-9, REQ-10).
   const estado = await calcularCartera(tx, ahora, ctx.env.TRADING_PAUSADO === "true");
-  const { aprobada, reglas } = evaluarRiesgo(p, estado);
+  const { aprobada, reglas } = evaluarRiesgo(p, estado, { maxEntradasAbiertasPorActivo: ctx.maxEntradasAbiertasPorActivo });
   if (!aprobada) {
     const id = await insertar(
       {
