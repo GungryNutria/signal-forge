@@ -33,6 +33,7 @@ type FilaEvaluacion = {
   resultado: ResultadoActivo["resultado"];
   propuesta_id: string | null;
   decision: ResultadoActivo["decision"] | null;
+  regla_principal: string | null;
 };
 
 /** Resultado por activo de varias ejecuciones. Una ejecución en `error` sin evaluación de un activo cuenta como error de ese activo. */
@@ -50,7 +51,7 @@ export async function resultadosPorEjecucion(
     sql`, `,
   );
   const evaluaciones = await filas<FilaEvaluacion>(
-    sql`SELECT ev.ejecucion_id, ev.activo, ev.resultado, p.id AS propuesta_id, p.decision
+    sql`SELECT ev.ejecucion_id, ev.activo, ev.resultado, p.id AS propuesta_id, p.decision, p.reglas_incumplidas[1] AS regla_principal
         FROM evaluaciones ev
         LEFT JOIN propuestas p ON p.evaluacion_id = ev.id AND p.es_original
         WHERE ev.ejecucion_id IN (${ids})`,
@@ -59,6 +60,7 @@ export async function resultadosPorEjecucion(
     const r: ResultadoActivo = { resultado: ev.resultado };
     if (ev.decision) r.decision = ev.decision;
     if (ev.propuesta_id) r.propuestaId = ev.propuesta_id;
+    if (ev.decision === "rechazada" && ev.regla_principal) r.reglaPrincipal = ev.regla_principal;
     const fila = mapa.get(ev.ejecucion_id);
     if (fila && (ACTIVOS as readonly string[]).includes(ev.activo)) fila[ev.activo] = r;
   }

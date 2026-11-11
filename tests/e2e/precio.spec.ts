@@ -1,6 +1,6 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { Pool } from "pg";
-import { BASE, CREDENCIALES, precioConocido, PUERTOS, SIN_BASE, sembrar, url } from "./ayuda";
+import { BASE, capturar, CREDENCIALES, precioConocido, PUERTOS, SIN_BASE, sembrar, url } from "./ayuda";
 
 // S6 Precio (spec 002), parte de página y estados (T-4): AC-12 a 15, AC-UX-7, 10, 12 a 15 y AC-UX-17 (sin escritura).
 test.skip(!BASE, SIN_BASE);
@@ -120,7 +120,7 @@ test.describe("alternativa en texto", () => {
     await expect(principal(page).getByRole("heading", { name: "Operaciones del rango (5)" })).toBeVisible();
     await expect(ops).toHaveCount(5);
     await expect(principal(page).locator("li[data-marca^='s:']").filter({ hasText: "Stop loss" })).toContainText(`${usd(K.sl.salida)} · −`);
-    await expect(principal(page).locator("li[data-marca^='s:']").filter({ hasText: "Take profit" })).toContainText(/\+[\d,]+\.\d{2} USD \(\+[\d.]+\s%\)/);
+    await expect(principal(page).locator("li[data-marca^='s:']").filter({ hasText: "Take profit" })).toContainText(/\+[\d,]+\.\d{2} USD \(\+3\.48\s%\)/);
     await expect(principal(page).locator("li[data-marca^='e:']").filter({ hasText: "Abierta" })).toContainText(usd(K.abierta.precio));
     for (const f of await ops.all()) await expect(f.getByRole("link", { name: /Ver operación/ })).toHaveAttribute("href", /^\/propuestas\/[0-9a-f-]{36}\?de=precio&v=/);
     const abiertas = principal(page).getByRole("list", { name: "Posiciones abiertas" }).getByRole("listitem");
@@ -294,14 +294,15 @@ test.describe("gráfica: marcadores, niveles y consulta de operaciones", () => {
     await expect(panel(page).getByRole("heading", { name: "Stop loss" })).toBeVisible();
     await expect(panel(page)).toContainText(usd(K.sl.salida));
     await expect(panel(page)).toContainText("Cierre por stop loss");
-    await expect(panel(page)).toContainText(/PnL neto\s*−[\d,.]+ USD \(−[\d.]+\s%\)/);
+    await expect(panel(page)).toContainText(/PnL neto\s*−[\d,.]+ USD \(−2\.49\s%\)/); // B-1: fracción x 100
+    await capturar(page, 1280, "s6_cierre");
     await expect(panel(page)).toContainText("3 h 20 min");
     await expect(panel(page)).toContainText(/Entrada \d{2}:\d{2}|Entrada \d+ nov, \d{2}:\d{2}/);
     const tp = marcador(page, "s").filter({ hasNot: page.locator("rect") });
     const c2 = await centro(tp);
     await page.mouse.move(c2.x, c2.y);
     await expect(panel(page).getByRole("heading", { name: "Take profit" })).toBeVisible();
-    await expect(panel(page)).toContainText(/PnL neto\s*\+[\d,.]+ USD \(\+[\d.]+\s%\)/);
+    await expect(panel(page)).toContainText(/PnL neto\s*\+[\d,.]+ USD \(\+3\.48\s%\)/);
   });
 
   test("AC-6: la consulta de la entrada abierta muestra tamaño, valores de la regla y niveles vigentes", async ({ page }) => {

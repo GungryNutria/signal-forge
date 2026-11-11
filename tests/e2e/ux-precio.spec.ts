@@ -123,9 +123,14 @@ for (const m of MEDIDAS) {
             if ((await marca.count()) > 0) {
               await marca.scrollIntoViewIfNeeded();
               const numero = (await marca.locator("text").first().textContent())!.trim();
-              const b = (await marca.locator("path").first().boundingBox())!;
-              await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
-              await expect(page.locator("[data-rotulo-nivel]")).toHaveCount(2);
+              // La consulta nace de un solo pointermove: si el diseño se mueve entre medir y mover (RK-6), el puntero
+              // cae fuera del marcador y nunca se repite. Se vuelve a medir y a mover hasta que el rótulo aparezca.
+              await expect(async () => {
+                const b = (await marca.locator("path").first().boundingBox())!;
+                await page.mouse.move(b.x + b.width / 2 + 1, b.y + b.height / 2);
+                await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
+                await expect(page.locator("[data-rotulo-nivel]")).toHaveCount(2, { timeout: 1000 });
+              }).toPass({ timeout: 10_000 });
               await expect(page.locator("[data-rotulo-nivel]").first()).toContainText(numero);
               sinChoques(await cajasRotulos(page)); // los de la posición consultada no se tocan entre sí
             }

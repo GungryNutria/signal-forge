@@ -18,7 +18,7 @@ export function EstadoOMotivo({ f }: { f: FilaPropuesta }) {
   if (f.decision === "rechazada" && f.reglaPrincipal) {
     return (
       <span>
-        {reglaPrincipal(f.reglaPrincipal)}
+        {reglaPrincipal(f.reglaPrincipal, f.activo)}
         {f.masReglas > 0 ? <span className="text-muted"> +{f.masReglas}</span> : null}
       </span>
     );

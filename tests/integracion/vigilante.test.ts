@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Pool } from "pg";
-import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ejecutarVigilante, type DepsVigilante } from "@/procesos/vigilante";
 import { DatosSimulados } from "@/server/broker/simulado";
 import type { Snapshot } from "@/server/broker/tipos";
@@ -42,6 +42,7 @@ beforeEach(async () => {
   ponerBid(100_000);
 });
 afterAll(() => e?.pool.end());
+afterEach(() => vi.unstubAllEnvs());
 
 describe("protecciones (AC-16, REQ-17, REQ-18)", () => {
   it("sin tocar ningún nivel no vende", async () => {
@@ -246,5 +247,47 @@ describe("candado, entorno y secretos", () => {
     const r = await ejecutarVigilante(deps({ plazoMs: 100 }));
     expect(r.estado).toBe("error");
     expect(await q("SELECT 1 FROM eventos WHERE tipo = 'error_vigilante'")).toHaveLength(1);
+  });
+});
+
+describe("medición del deslizamiento (spec 003, AC-13, REQ-13)", () => {
+  it("la orden de salida guarda el bid que disparó el stop y la hora de su quote; v_cierres lo descompone", async () => {
+    await abrir();
+    ponerBid(97_990);
+    e.broker.precios = { "BTC/USD": 97_500 }; // llena peor que el stop de 98000
+    await ejecutarVigilante(deps());
+    const [o] = await q("SELECT precio_disparo, precio_disparo_ts FROM ordenes WHERE tramo = 'salida'");
+    expect(Number(o.precio_disparo)).toBe(97_990);
+    expect(o.precio_disparo_ts).toEqual(ahora);
+    expect((await q("SELECT precio_disparo FROM ordenes WHERE tramo = 'entrada'"))[0].precio_disparo).toBeNull();
+    const [c] = await q("SELECT * FROM v_cierres");
+    expect(c).toMatchObject({ nivel: "stop_loss", deslizamiento_usd: "-2.49", deslizamiento_pct: "-0.005102" });
+    expect(Number(c.precio_disparo)).toBe(97_990);
+    expect(Number(c.movimiento_usd) + Number(c.deslizamiento_usd) + Number(c.comision_usd)).toBeCloseTo(Number(c.pnl_neto_usd), 10);
+  });
+
+  it("el take profit guarda su disparo y no tiene deslizamiento cuando llena en el nivel", async () => {
+    await abrir();
+    ponerBid(104_100);
+    e.broker.precios = { "BTC/USD": 104_000 };
+    await ejecutarVigilante(deps());
+    const [c] = await q("SELECT * FROM v_cierres");
+    expect(c).toMatchObject({ nivel: "take_profit", deslizamiento_usd: "0.00", deslizamiento_pct: "0.000000" });
+    expect(Number(c.precio_disparo)).toBe(104_100);
+  });
+});
+
+describe("R11 no afecta a las salidas (spec 003, AC-7, AC-9, RNF-4)", () => {
+  it("AC-7: con 4 entradas de BTC abiertas (por encima de N = 1) y N inválido en el entorno, el vigilante cierra las 4 por stop y R11 no crea órdenes", async () => {
+    vi.stubEnv("MAX_ENTRADAS_ABIERTAS_POR_ACTIVO", "x"); // el vigilante ni lo lee
+    for (let i = 0; i < 4; i++) expect((await abrir()).decision).toBe("ejecutada"); // el contexto de pruebas tiene un N alto
+    const antes = (await q("SELECT 1 FROM ordenes WHERE tramo = 'entrada'")).length;
+    ponerBid(97_999);
+    e.broker.precios = { "BTC/USD": 98_000 };
+    const r = await ejecutarVigilante(deps());
+    expect(r).toMatchObject({ estado: "completada", ventas: 4, cierres: 4 });
+    expect(ventas()).toHaveLength(4);
+    expect(await q("SELECT 1 FROM ordenes WHERE tramo = 'entrada'")).toHaveLength(antes);
+    expect(await q("SELECT 1 FROM cierres_lote WHERE motivo_cierre = 'stop_loss'")).toHaveLength(4);
   });
 });

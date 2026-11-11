@@ -18,7 +18,7 @@ export async function metricas(f: { activo?: Activo } = {}): Promise<Metricas> {
   const deLote = f.activo ? sql`AND l.activo = ${f.activo}` : sql``;
   const dePropuesta = f.activo ? sql`AND p.activo = ${f.activo}` : sql``;
 
-  const [curva, drawdown, diario, tasa, decisiones] = await Promise.all([
+  const [curva, drawdown, diario, tasa, decisiones, [{ n: r11 }]] = await Promise.all([
     filas<{ t: Marca; saldo: string }>(sql`WITH c AS (${CURVA}) SELECT t, saldo::text AS saldo FROM c ORDER BY t, lote_id`),
     filas<{ desde: Marca | null; hasta: Marca; pct: string }>(
       sql`WITH c AS (${CURVA}),
@@ -46,6 +46,9 @@ export async function metricas(f: { activo?: Activo } = {}): Promise<Metricas> {
           WHERE p.decision IN ('ejecutada', 'rechazada') ${dePropuesta}
           GROUP BY 1, 2 ORDER BY count(*) DESC, 2`,
     ),
+    filas<{ n: string }>(
+      sql`SELECT count(*)::text AS n FROM propuestas p WHERE p.reglas @> '[{"regla":"R11","aplica":true}]'::jsonb ${dePropuesta}`,
+    ),
   ]);
 
   const dd = drawdown[0];
@@ -68,5 +71,6 @@ export async function metricas(f: { activo?: Activo } = {}): Promise<Metricas> {
     porMotivo: [...porMotivo].map(([motivo, n]) => ({ motivo, n })),
     aprobadas: decisiones.filter((d) => d.decision === "ejecutada").reduce((s, d) => s + Number(d.n), 0),
     rechazadas: rechazos.reduce((s, d) => s + Number(d.n), 0),
+    r11Evaluadas: Number(r11),
   };
 }

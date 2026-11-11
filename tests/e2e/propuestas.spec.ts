@@ -102,12 +102,13 @@ for (const m of MEDIDAS) {
       const titulos = await page.locator("main").getByRole("heading", { level: 2 }).allTextContents();
       expect(titulos).toEqual([
         "Regla de entrada evaluada",
-        "Reglas de riesgo R1 a R10",
+        "Reglas de riesgo",
         "Respuesta del broker",
         "Etiqueta de resultado",
         "Investigación adjunta",
         "Ejecución del ciclo",
       ]);
+      await expect(vis(page.getByText("Conjunto aplicado: R1 a R11"))).toBeVisible(); // AC-UX-2: ya no dice "R1 a R10" fijo
       await expect(vis(page.getByText("tendencia-sma-v1")).first()).toBeVisible();
       await expect(vis(page.getByText("Señal de compra"))).toBeVisible();
       await expect(vis(page.getByText("Informativa: no interviene en la decisión de entrada"))).toBeVisible();
@@ -122,11 +123,11 @@ for (const m of MEDIDAS) {
       expect(await graves(page)).toEqual([]);
     });
 
-    test("S3 AC-UX-11: la tabla R1 a R10 lleva las incumplidas primero, con valor y límite", async ({ page }) => {
+    test("S3 AC-UX-11: la tabla de reglas lleva las incumplidas primero, con valor y límite", async ({ page }) => {
       sembrar("ejecutada-y-rechazada");
       await page.goto("/propuestas?decision=rechazada");
       await enlaceFila(page, "SOL/USD").click();
-      await expect(page.getByRole("heading", { name: "Reglas de riesgo R1 a R10" })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "Reglas de riesgo", exact: true })).toBeVisible();
       const regiones = m.ancho >= 768 ? page.getByRole("table", { name: "Reglas de riesgo" }).getByRole("row") : page.getByRole("list", { name: "Reglas de riesgo" }).getByRole("listitem");
       const primera = regiones.nth(m.ancho >= 768 ? 1 : 0);
       await expect(primera).toContainText("R3 tamaño");

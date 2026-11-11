@@ -41,6 +41,24 @@ describe("concurrencia de procesarPropuesta", () => {
   });
 });
 
+describe("concurrencia de R11 (AC-12)", () => {
+  it("10 compras de BTC a la vez con claves y ejecuciones distintas, N = 1 y sin abiertas: una ejecutada y una orden", async () => {
+    await reiniciarBase();
+    const c = crearEntorno({}, 1);
+    try {
+      const rs = await Promise.all(Array.from({ length: 10 }, () => procesarPropuesta(compra(), c.ctx)));
+      expect(rs.filter((r) => r.decision === "ejecutada")).toHaveLength(1);
+      const rechazadas = rs.filter((r) => r.decision === "rechazada");
+      expect(rechazadas).toHaveLength(9);
+      for (const r of rechazadas) expect(r.reglas?.filter((x) => !x.cumple).map((x) => x.regla)).toEqual(["R11"]);
+      expect((await c.pool.query("SELECT 1 FROM ordenes")).rowCount).toBe(1);
+      expect(c.broker.registradas).toHaveLength(1);
+    } finally {
+      await c.pool.end();
+    }
+  });
+});
+
 describe("concurrencia del ciclo", () => {
   it("dos ejecutarCiclo simultáneos: uno evalúa y el otro queda omitida_solapamiento, sin propuestas duplicadas (AC-30)", async () => {
     await reiniciarBase();

@@ -137,6 +137,9 @@ export const ordenes = pgTable(
     nocionalUsd: usd("nocional_usd"),
     cantidad: cant("cantidad"),
     creadaEn: ts("creada_en").notNull().defaultNow(),
+    // REQ-13: solo en las salidas del vigilante, el bid que disparó el nivel y la hora de su quote. Nulas en las demás.
+    precioDisparo: cant("precio_disparo"),
+    precioDisparoTs: ts("precio_disparo_ts"),
   },
   (t) => [
     check("ordenes_tramo_ck", sql`${t.tramo} IN ('entrada','salida')`),

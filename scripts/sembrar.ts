@@ -101,7 +101,7 @@ async function investigacion(
 /** Closes explícitos (el último es el cierre de la vela que termina en `cierre`): fija lo que verá la serie de precio. */
 type Vela = { closes: number[]; cierre: Date };
 
-function fotoDe(activo: Activo, evaluadaEn: Date, resultado: Resultado, inv?: Inv, vela?: Vela) {
+function fotoDe(activo: Activo, evaluadaEn: Date, resultado: Resultado, inv?: Inv, vela?: Vela, abiertas: Partial<Record<Activo, number>> = {}) {
   const conDatos = resultado === "propuesta" || resultado === "sin_senal";
   const ranura = ranura30(evaluadaEn).getTime();
   const base = PRECIO_BASE[activo];
@@ -129,6 +129,7 @@ function fotoDe(activo: Activo, evaluadaEn: Date, resultado: Resultado, inv?: In
       exposicionTotalC: 0,
       exposicionPorActivoC: { "BTC/USD": 0, "SOL/USD": 0 },
       lotesAbiertos: 0,
+      entradasAbiertasPorActivo: { "BTC/USD": abiertas["BTC/USD"] ?? 0, "SOL/USD": abiertas["SOL/USD"] ?? 0 },
       entradasHoy: 0,
       pnlDiaC: 0,
     },
@@ -145,7 +146,15 @@ function fotoDe(activo: Activo, evaluadaEn: Date, resultado: Resultado, inv?: In
 }
 
 /** `closes` y `velaHace` (minutos entre el inicio de la ejecución y el cierre de la última vela; 0 por defecto) fijan la serie de precio. */
-type SpecEval = { resultado: Resultado; inv?: Inv; errorDetalle?: string; closes?: number[]; velaHace?: number };
+type SpecEval = {
+  resultado: Resultado;
+  inv?: Inv;
+  errorDetalle?: string;
+  closes?: number[];
+  velaHace?: number;
+  /** Entradas abiertas por activo que la foto registra al evaluar (por defecto, 0). */
+  abiertas?: Partial<Record<Activo, number>>;
+};
 type Ejecucion = { id: string; inicio: Date; evaluaciones: Partial<Record<Activo, string>> };
 
 async function ejecucion(
@@ -182,7 +191,7 @@ async function ejecucion(
       evaluadaEn,
       resultado: e.resultado,
       versionRegla: TENDENCIA_SMA_V1.version,
-      foto: fotoDe(activo, evaluadaEn, e.resultado, e.inv, e.closes && { closes: e.closes, cierre: new Date(inicio.getTime() - (e.velaHace ?? 0) * MIN) }),
+      foto: fotoDe(activo, evaluadaEn, e.resultado, e.inv, e.closes && { closes: e.closes, cierre: new Date(inicio.getTime() - (e.velaHace ?? 0) * MIN) }, e.abiertas),
       investigacionId: e.inv?.id ?? null,
       errorDetalle: e.errorDetalle ?? (e.resultado === "datos_no_disponibles" ? "bars: sin respuesta del proveedor" : null),
     });
@@ -228,12 +237,14 @@ const ESTADO_BASE: EstadoCartera = {
   pausaAutomatica: false,
   pausaManual: false,
   ordenesDesconocidas: {},
+  entradasAbiertasPorActivo: {},
 };
 
-/** Las diez reglas tal como las calcula el sistema, para un caso y un estado de cartera dados. */
+/** Las once reglas tal como las calcula el sistema, para un caso y un estado de cartera dados. */
 function reglasDe(
   p: { activo: string; lado?: "buy" | "sell"; nocional?: number; cantidad?: number; tipo?: string },
   estado: Partial<EstadoCartera> = {},
+  maxEntradasAbiertasPorActivo = 1,
 ): ResultadoRegla[] {
   const lado = p.lado ?? "buy";
   const propuesta = {
@@ -248,7 +259,7 @@ function reglasDe(
     version_regla: TENDENCIA_SMA_V1.version,
     justificacion: { entradas: {}, resultado: {} },
   } as PropuestaV1;
-  return evaluarRiesgo(propuesta, { ...ESTADO_BASE, ...estado }).reglas;
+  return evaluarRiesgo(propuesta, { ...ESTADO_BASE, ...estado }, { maxEntradasAbiertasPorActivo }).reglas;
 }
 
 async function propuesta(
@@ -266,6 +277,8 @@ async function propuesta(
     ejecucionId?: string | null;
     evaluacionId?: string | null;
     original?: boolean;
+    /** Por defecto, la regla de tendencia. */
+    proponente?: string;
     /** Valores de la regla guardados en la justificación (por defecto, los de siempre). */
     regla?: { close_ultimo: number; close_previo: number; sma20: number } | null;
   },
@@ -285,7 +298,7 @@ async function propuesta(
     claveIdempotencia: o.original === false ? null : `semilla:${id}`,
     huellaContenido: id.replaceAll("-", "").repeat(2),
     esOriginal: o.original ?? true,
-    proponente: o.activo ? TENDENCIA_SMA_V1.version : null,
+    proponente: o.activo ? (o.proponente ?? TENDENCIA_SMA_V1.version) : null,
     ejecucionId: o.ejecucionId ?? null,
     evaluacionId: o.evaluacionId ?? null,
     versionRegla: o.activo ? TENDENCIA_SMA_V1.version : null,
@@ -325,7 +338,8 @@ async function operacion(
     entrada?: EntradaFinal;
     nocional?: number;
     precio?: number;
-    cierre?: { motivo: MotivoCierre; hace: number; pnlUsd?: number; hoy?: boolean };
+    /** `llenado`: precio de la venta si no es el nivel exacto (deslizamiento); `disparo`: bid que la disparó, sin él la orden queda como las anteriores a la spec 003. */
+    cierre?: { motivo: MotivoCierre; hace: number; pnlUsd?: number; hoy?: boolean; llenado?: number; disparo?: number };
   },
 ): Promise<{ loteId: string | null }> {
   const entrada = o.entrada ?? "llenada";
@@ -391,7 +405,7 @@ async function operacion(
   });
   if (!o.cierre) return { loteId };
 
-  const precioSalida = o.cierre.motivo === "take_profit" ? takeProfit : stopLoss;
+  const precioSalida = o.cierre.llenado ?? (o.cierre.motivo === "take_profit" ? takeProfit : stopLoss);
   const abiertoEn = new Date(t0.getTime() + 3000);
   const cerradoEn = o.cierre.hoy ? hoy(s, o.cierre.hace) : hace(s, o.cierre.hace);
   const c = cerrarLote({ nocionalEntradaC: Math.round(nocional * 100), cantidadNeta: neta, precioSalida, motivo: o.cierre.motivo, abiertoEn, cerradoEn });
@@ -406,6 +420,7 @@ async function operacion(
     lado: "sell",
     cantidad: String(neta),
     creadaEn: cerradoEn,
+    ...(o.cierre.disparo === undefined ? {} : { precioDisparo: String(o.cierre.disparo), precioDisparoTs: new Date(cerradoEn.getTime() - 2000) }),
   });
   await s.db.insert(eventosOrden).values([
     { ordenId: salidaId, momento: cerradoEn, estado: "pendiente_envio", detalle: o.cierre.motivo },
@@ -477,6 +492,44 @@ export const METRICAS_CONOCIDAS = {
   },
   pnlDiarioGlobal: [{ dias: 3, pnl: "4.95" }, { dias: 2, pnl: "22.35" }, { dias: 1, pnl: "-24.90" }],
 } as const;
+
+// ───────────────────────────── Spec 003: R11 y deslizamiento ─────────────────────────────
+
+/**
+ * Valores del escenario `deslizamiento`, calculados a mano. Lote común: entrada 100 000, 500 USD, q = 0.005,
+ * qn = 0.0049875, stop 98 000 y take profit 104 000. movimiento = qn x (nivel - entrada), deslizamiento = qn x (llenado - nivel),
+ * comisión = PnL neto - movimiento - deslizamiento; los porcentajes van sobre su base (D-6).
+ */
+export const DESLIZAMIENTO_CONOCIDO = {
+  /** Stop llenado a 97 500 tras disparar con un bid de 97 990. */
+  stop: {
+    llenado: "97500", disparo: "97990", nivel: "98000",
+    movimientoUsd: "-9.98", movimientoPct: "-0.020000",
+    deslizamientoUsd: "-2.49", deslizamientoPct: "-0.005102",
+    comisionUsd: "-2.46", comisionPct: "-0.004920",
+    pnlNetoUsd: "-14.93", pnlNetoPct: "-0.029860",
+  },
+  /** Take profit llenado a 104 500 tras disparar con un bid de 104 100 (se llenó mejor que el nivel). */
+  takeProfit: {
+    llenado: "104500", disparo: "104100", nivel: "104000",
+    movimientoUsd: "19.95", movimientoPct: "0.040000",
+    deslizamientoUsd: "2.49", deslizamientoPct: "0.004808",
+    comisionUsd: "-2.55", comisionPct: "-0.005100",
+    pnlNetoUsd: "19.89", pnlNetoPct: "0.039780",
+  },
+  /** Stop llenado a 97 000 de un cierre anterior a la medición: no guarda el bid de disparo. */
+  anterior: {
+    llenado: "97000", disparo: null, nivel: "98000",
+    movimientoUsd: "-9.98", movimientoPct: "-0.020000",
+    deslizamientoUsd: "-4.99", deslizamientoPct: "-0.010204",
+    comisionUsd: "-2.45", comisionPct: "-0.004900",
+    pnlNetoUsd: "-17.42", pnlNetoPct: "-0.034840",
+  },
+} as const;
+
+/** Las reglas que tenía una propuesta anterior a R11. */
+const sinR11 = (reglas: ResultadoRegla[]) => reglas.filter((r) => r.regla !== "R11");
+const ABIERTA_BTC: Partial<EstadoCartera> = { entradasAbiertasPorActivo: { "BTC/USD": 1 } };
 
 // ───────────────────────────── S6 Precio (spec 002) ─────────────────────────────
 
@@ -876,6 +929,124 @@ export const ESCENARIOS: Record<string, Escenario> = {
     const sol = await investigacion(s, { activo: "SOL/USD", hace: 30, resumen: PAYLOADS[2], fuentes: ["https://example.com/ok"] });
     const e = await ejecucion(s, { hace: 12, activos: { "BTC/USD": { resultado: "propuesta", inv: btc }, "SOL/USD": { resultado: "sin_senal", inv: sol } } });
     await ejecutada(s, e, "BTC/USD", { hace: 12 });
+  },
+
+  // ── Spec 003 (R11 y deslizamiento). ──
+
+  // AC-16, AC-UX-1, AC-UX-2, AC-UX-4: BTC/USD con una entrada abierta y N = 1. Una compra aprobada con R11 "cumple" (la que
+  // abrió la entrada), un rechazo solo por R11, uno por R8 + R11 y una venta con R11 "no aplica".
+  "r11-casos": async (s) => {
+    await sistemaAlDia(s);
+    const btc = (hace: number, abiertas = 0) =>
+      ejecucion(s, { hace, activos: { "BTC/USD": { resultado: "propuesta", abiertas: { "BTC/USD": abiertas } } } });
+    await ejecutada(s, await btc(90), "BTC/USD", { hace: 90 });
+    const rechazo = async (hace: number, estado: Partial<EstadoCartera>, lado: "buy" | "sell" = "buy") => {
+      const e = await btc(hace, 1);
+      return propuesta(s, {
+        hace,
+        activo: "BTC/USD",
+        lado,
+        cantidad: lado === "sell" ? 0.001 : undefined,
+        decision: lado === "sell" ? "error" : "rechazada",
+        motivo: lado === "sell" ? "venta_no_habilitada" : "reglas_incumplidas",
+        reglas: reglasDe({ activo: "BTC/USD", lado, cantidad: 0.001 }, { ...ABIERTA_BTC, ...estado }),
+        ejecucionId: e.id,
+        evaluacionId: e.evaluaciones["BTC/USD"],
+      });
+    };
+    await rechazo(60, {});
+    await rechazo(50, { pausaManual: true });
+    await rechazo(40, { cantidadPorActivo: { "BTC/USD": 0.0049875 } }, "sell");
+  },
+
+  // AC-11, AC-UX-3: una propuesta rechazada y otra ejecutada con las diez reglas de antes de R11.
+  "r11-anterior": async (s) => {
+    await sistemaAlDia(s);
+    const e1 = await ejecucion(s, { hace: 90, activos: { "BTC/USD": { resultado: "propuesta" } } });
+    await propuesta(s, {
+      hace: 90,
+      activo: "BTC/USD",
+      nocional: 1001,
+      decision: "rechazada",
+      motivo: "reglas_incumplidas",
+      reglas: sinR11(reglasDe({ activo: "BTC/USD", nocional: 1001 })),
+      ejecucionId: e1.id,
+      evaluacionId: e1.evaluaciones["BTC/USD"],
+    });
+    const e2 = await ejecucion(s, { hace: 60, activos: { "BTC/USD": { resultado: "propuesta" } } });
+    const propuestaId = await propuesta(s, {
+      hace: 60,
+      activo: "BTC/USD",
+      decision: "ejecutada",
+      motivo: "aprobada",
+      reglas: sinR11(reglasDe({ activo: "BTC/USD" })),
+      ejecucionId: e2.id,
+      evaluacionId: e2.evaluaciones["BTC/USD"],
+    });
+    await operacion(s, { propuestaId, activo: "BTC/USD", hace: 60 });
+  },
+
+  // AC-UX-6: el estado de producción al desplegar, 3 entradas abiertas de BTC/USD y 1 de SOL/USD, todas de antes de R11.
+  "r11-tope": async (s) => {
+    await sistemaAlDia(s);
+    for (const [activo, hace] of [["BTC/USD", 200], ["BTC/USD", 150], ["BTC/USD", 100], ["SOL/USD", 60]] as const) {
+      const e = await ejecucion(s, { hace, activos: { [activo]: { resultado: "propuesta" } } as Partial<Record<Activo, SpecEval>> });
+      const propuestaId = await propuesta(s, {
+        hace,
+        activo,
+        decision: "ejecutada",
+        motivo: "aprobada",
+        reglas: sinR11(reglasDe({ activo })),
+        ejecucionId: e.id,
+        evaluacionId: e.evaluaciones[activo],
+      });
+      await operacion(s, { propuestaId, activo, hace });
+    }
+  },
+
+  // AC-19, AC-UX-7: dos rechazos solo por R11, uno del ciclo y otro del decisor simulado, con la misma entrada abierta.
+  "r11-dos-proponentes": async (s) => {
+    await sistemaAlDia(s);
+    const e0 = await ejecucion(s, { hace: 90, activos: { "BTC/USD": { resultado: "propuesta" } } });
+    const abierta = await propuesta(s, {
+      hace: 90,
+      activo: "BTC/USD",
+      decision: "ejecutada",
+      motivo: "aprobada",
+      reglas: sinR11(reglasDe({ activo: "BTC/USD" })),
+      ejecucionId: e0.id,
+      evaluacionId: e0.evaluaciones["BTC/USD"],
+    });
+    await operacion(s, { propuestaId: abierta, activo: "BTC/USD", hace: 90 });
+    // Más recientes que la ejecución de `sistemaAlDia` (hace 12): la banda de S1 muestra el último rechazo por R11.
+    for (const [hace, proponente] of [[10, "ciclo"], [8, "decisor-simulado"]] as const) {
+      const e = await ejecucion(s, { hace, activos: { "BTC/USD": { resultado: "propuesta", abiertas: { "BTC/USD": 1 } } } });
+      await propuesta(s, {
+        hace,
+        activo: "BTC/USD",
+        proponente,
+        decision: "rechazada",
+        motivo: "reglas_incumplidas",
+        reglas: reglasDe({ activo: "BTC/USD" }, ABIERTA_BTC),
+        ejecucionId: e.id,
+        evaluacionId: e.evaluaciones["BTC/USD"],
+      });
+    }
+  },
+
+  // AC-13, AC-14, AC-17: un stop con deslizamiento y bid de disparo, un take profit con disparo y un cierre anterior sin
+  // disparo. Los valores a mano están en DESLIZAMIENTO_CONOCIDO.
+  deslizamiento: async (s) => {
+    await sistemaAlDia(s);
+    const casos = [
+      { hace: 240, cierre: { motivo: "stop_loss", hace: 200, llenado: 97_500, disparo: 97_990 } },
+      { hace: 180, cierre: { motivo: "take_profit", hace: 140, llenado: 104_500, disparo: 104_100 } },
+      { hace: 120, cierre: { motivo: "stop_loss", hace: 80, llenado: 97_000 } },
+    ] as const;
+    for (const c of casos) {
+      const e = await ejecucion(s, { hace: c.hace, activos: { "BTC/USD": { resultado: "propuesta" } } });
+      await ejecutada(s, e, "BTC/USD", { hace: c.hace, cierre: c.cierre });
+    }
   },
 
   // ── S6 Precio (spec 002). Las horas son ahora − N min: no hace falta un reloj falso en el servidor. ──

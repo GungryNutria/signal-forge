@@ -6,6 +6,7 @@ import type { DetallePropuesta, OrdenVista, ReglaDetalle } from "@/server/consul
 import { conHora } from "../_lib/datos";
 import {
   cripto,
+  desgloseR11,
   hora,
   horaConSegundos,
   momento,
@@ -104,21 +105,32 @@ const ESTADO_REGLA: Record<ReglaDetalle["estado"], { texto: string; tono: "pos" 
   cumple: { texto: "Cumple", tono: "pos" },
   incumple: { texto: "Incumple", tono: "neg" },
   no_aplica: { texto: "No aplica", tono: "neutro" },
+  no_evaluada: { texto: "No evaluada", tono: "neutro" }, // AC-UX-3: texto propio, sin color de resultado
 };
+const CONJUNTO = { "R1-R10": "R1 a R10", "R1-R11": "R1 a R11" } as const;
+const SIN_R11 = "Esta propuesta se evaluó con R1 a R10";
 // AC-UX-11: R2 solo aplica a ventas; cuando no aplica, el límite explica por qué.
 const limite = (r: ReglaDetalle) =>
   r.regla === "R2" && r.estado === "no_aplica" ? "Solo en ventas: cantidad vendida ≤ posición" : valorRegla(r.limite);
-const observado = (r: ReglaDetalle) => (r.estado === "no_aplica" ? "—" : valorRegla(r.observado));
+const observado = (r: ReglaDetalle) =>
+  r.estado === "no_aplica" || r.estado === "no_evaluada"
+    ? "—"
+    : r.regla === "R11"
+      ? desgloseR11(r.observado, r.limite)
+      : valorRegla(r.observado);
 const nombre = (r: ReglaDetalle) => (NOMBRE_REGLA[r.regla] ? `${r.regla} ${NOMBRE_REGLA[r.regla]}` : r.regla);
 
-function ReglasRiesgo({ reglas }: { reglas: ReglaDetalle[] }) {
+function ReglasRiesgo({ reglas, conjunto }: { reglas: ReglaDetalle[]; conjunto: DetallePropuesta["reglasAplicadas"] }) {
   const fallan = reglas.filter((r) => r.estado === "incumple").length;
   return (
     <Tarjeta>
       <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-        <TituloBloque>Reglas de riesgo R1 a R10</TituloBloque>
+        <div>
+          <TituloBloque className="mb-1">Reglas de riesgo</TituloBloque>
+          {conjunto ? <p className="text-sm text-muted">Conjunto aplicado: {CONJUNTO[conjunto]}</p> : null}
+        </div>
         {reglas.length > 0 ? (
-          <p className="text-sm text-muted">{fallan === 0 ? "Todas cumplen o no aplican" : `${fallan} no se cumplen`}</p>
+          <p className="text-sm text-muted">{fallan === 0 ? "Todas cumplen o no aplican" : `${fallan} no se ${fallan === 1 ? "cumple" : "cumplen"}`}</p>
         ) : null}
       </div>
       {reglas.length === 0 ? (
@@ -140,8 +152,14 @@ function ReglasRiesgo({ reglas }: { reglas: ReglaDetalle[] }) {
                 <tr key={r.regla} className="min-h-10 border-b border-line last:border-0">
                   <td className="px-2 py-2">{nombre(r)}</td>
                   <td className="px-2 py-2"><Chip tono={ESTADO_REGLA[r.estado].tono}>{ESTADO_REGLA[r.estado].texto}</Chip></td>
-                  <td className="px-2 py-2">{observado(r)}</td>
-                  <td className="px-2 py-2">{limite(r)}</td>
+                  {r.estado === "no_evaluada" ? (
+                    <td colSpan={2} className="px-2 py-2 text-muted">{SIN_R11}</td>
+                  ) : (
+                    <>
+                      <td className="px-2 py-2">{observado(r)}</td>
+                      <td className="px-2 py-2">{limite(r)}</td>
+                    </>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -153,8 +171,14 @@ function ReglasRiesgo({ reglas }: { reglas: ReglaDetalle[] }) {
                   <span className="font-semibold">{nombre(r)}</span>
                   <Chip tono={ESTADO_REGLA[r.estado].tono}>{ESTADO_REGLA[r.estado].texto}</Chip>
                 </div>
-                <p className="text-muted">Observado: {observado(r)}</p>
-                <p className="text-muted">Límite: {limite(r)}</p>
+                {r.estado === "no_evaluada" ? (
+                  <p className="text-muted">{SIN_R11}</p>
+                ) : (
+                  <>
+                    <p className="text-muted">Observado: {observado(r)}</p>
+                    <p className="text-muted">Límite: {limite(r)}</p>
+                  </>
+                )}
               </li>
             ))}
           </ul>
@@ -227,6 +251,51 @@ function RespuestaBroker({ d }: { d: DetallePropuesta }) {
 
 const CIERRE = { take_profit: "Take profit", stop_loss: "Stop loss" } as const;
 
+type SalidaVista = NonNullable<DetallePropuesta["salida"]>;
+
+/** Renglón del desglose: USD y % con su signo, en tinta neutra (AC-UX-9). Cada % sobre su propia base (D-6). */
+function Renglon({ nombre, usd: u, frac, nota, fuerte = false }: { nombre: string; usd: string; frac: string; nota?: string; fuerte?: boolean }) {
+  const valor = `${usdConSigno(u)} · ${pct(Number(frac) * 100, 2)}`;
+  return (
+    <div className={`flex flex-wrap items-baseline justify-between gap-x-4 border-b border-line py-2 last:border-0 ${fuerte ? "font-semibold" : ""}`}>
+      <dt className="min-w-0 [overflow-wrap:anywhere]">
+        {nombre}
+        {nota ? <span className="font-normal text-muted"> ({nota})</span> : null}
+      </dt>
+      <dd className={`[overflow-wrap:anywhere] ${fuerte ? COLOR[signo(u)] : ""}`}>{valor}</dd>
+    </div>
+  );
+}
+
+/** REQ-19, AC-UX-8: lo que pasó entre el nivel y el llenado, en este orden. Solo para lotes cerrados por SL o TP. */
+function Salida({ s }: { s: SalidaVista }) {
+  return (
+    <Tarjeta>
+      <TituloBloque>Salida de la operación</TituloBloque>
+      <Datos>
+        <Dato etiqueta={`Nivel tocado: ${CIERRE[s.motivo]}`}>{usd(s.nivel)}</Dato>
+        <Dato etiqueta="Precio que disparó la salida">
+          {s.precioDisparo && s.precioDisparoEn ? (
+            <>
+              {usd(s.precioDisparo)} · {momento(s.precioDisparoEn)} · {momentoUtc(s.precioDisparoEn)}
+            </>
+          ) : (
+            "No registrado: el cierre es anterior a esta medición"
+          )}
+        </Dato>
+        <Dato etiqueta="Precio de llenado">{usd(s.precioLlenado)}</Dato>
+      </Datos>
+      <h3 className="mt-4 mb-1 text-[13px] font-semibold text-muted">Desglose del PnL neto</h3>
+      <dl className="text-sm" aria-label="Desglose del PnL neto">
+        <Renglon nombre="Movimiento hasta el nivel" usd={s.movimientoUsd} frac={s.movimientoPct} />
+        <Renglon nombre="Deslizamiento de precio" nota="sin comisiones" usd={s.deslizamientoUsd} frac={s.deslizamientoPct} />
+        <Renglon nombre="Comisión modelada" nota="entrada y salida" usd={s.comisionUsd} frac={s.comisionPct} />
+        <Renglon nombre="PnL neto" usd={s.pnlNetoUsd} frac={s.pnlNetoPct} fuerte />
+      </dl>
+    </Tarjeta>
+  );
+}
+
 function Etiqueta({ d }: { d: DetallePropuesta }) {
   const e = d.etiqueta;
   return (
@@ -255,7 +324,7 @@ function Etiqueta({ d }: { d: DetallePropuesta }) {
               <Dato etiqueta="PnL neto">
                 <span className={COLOR[signo(e.pnlNetoUsd)]}>
                   {usdConSigno(e.pnlNetoUsd)}
-                  {e.pnlNetoPct !== null ? ` (${pct(e.pnlNetoPct, 2)})` : ""}
+                  {e.pnlNetoPct !== null ? ` (${pct(Number(e.pnlNetoPct) * 100, 2)})` : ""}
                 </span>
               </Dato>
             ) : null}
@@ -319,8 +388,9 @@ export async function DetallePropuestaVista({ params, searchParams }: { params: 
         resultado={leerResultado(regla?.resultado)}
         sinDatos="Esta propuesta no trae una regla de entrada evaluada."
       />
-      <ReglasRiesgo reglas={d.reglas} />
+      <ReglasRiesgo reglas={d.reglas} conjunto={d.reglasAplicadas} />
       <RespuestaBroker d={d} />
+      {d.salida ? <Salida s={d.salida} /> : null}
       <Etiqueta d={d} />
       <InvestigacionAdjunta activo={d.activo} inv={d.investigacion} />
       <Ejecucion d={d} />

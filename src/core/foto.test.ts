@@ -21,6 +21,7 @@ const base = (): EntradaFoto => ({
     exposicionTotalC: 50_000,
     exposicionPorActivoC: { "BTC/USD": 50_000, "SOL/USD": 0 },
     lotesAbiertos: 1,
+    entradasAbiertasPorActivo: { "BTC/USD": 1, "SOL/USD": 0 },
     entradasHoy: 3,
     pnlDiaC: -410,
   },
@@ -38,7 +39,7 @@ const base = (): EntradaFoto => ({
 describe("armarFoto", () => {
   it("AC-18: tiene todos los campos de REQ-23 y todo ts <= evaluada_en", () => {
     const f = armarFoto(base());
-    expect(f.version).toBe("foto-v1");
+    expect(f.version).toBe("foto-v2");
     expect(f.momento).toEqual({ evaluada_en: T.toISOString(), dia_semana_utc: 5, hora_utc: 18 });
     expect(f.cartera).toMatchObject({
       saldo_virtual_usd: "10000.00",
@@ -46,6 +47,7 @@ describe("armarFoto", () => {
       exposicion_total_usd: "500.00",
       exposicion_por_activo_usd: { "BTC/USD": "500.00", "SOL/USD": "0.00" },
       lotes_abiertos: 1,
+      entradas_abiertas_por_activo: { "BTC/USD": 1, "SOL/USD": 0 }, // AC-10, REQ-11
       entradas_hoy: 3,
       pnl_dia_usd: "-4.10",
       faltantes: [],

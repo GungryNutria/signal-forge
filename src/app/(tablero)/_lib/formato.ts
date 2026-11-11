@@ -122,8 +122,21 @@ export const NOMBRE_REGLA: Record<string, string> = {
   R8: "pausa manual",
   R9: "orden desconocida",
   R10: "tipo de orden",
+  R11: "entradas abiertas por activo",
 };
-const SUPERA = new Set(["R3", "R4", "R5", "R7"]);
+const SUPERA = new Set(["R3", "R4", "R5", "R7", "R11"]);
+
+/** Nombre corto de la banda y de S5 (AC-UX-5): `R8 pausa manual`, `R11 entradas abiertas`. */
+export function nombreCorto(regla: string): string {
+  if (regla === "R11") return "R11 entradas abiertas";
+  return NOMBRE_REGLA[regla] ? `${regla} ${NOMBRE_REGLA[regla]}` : regla;
+}
+
+/** Desglose de R11 en S3 (AC-UX-2): `1 abierta + esta propuesta = 2 · límite 1`. `observado` ya incluye la propuesta. */
+export function desgloseR11(observado: string, limite: string): string {
+  const abiertas = Number(observado) - 1;
+  return `${abiertas} ${abiertas === 1 ? "abierta" : "abiertas"} + esta propuesta = ${observado} · límite ${limite}`;
+}
 
 /** Valores monetarios del motor (`1001.00 USD`) con el formato del tablero. */
 export const valorRegla = (v: string): string => {
@@ -131,9 +144,9 @@ export const valorRegla = (v: string): string => {
   return m ? usd(m[1]) : v;
 };
 
-/** `R3 tamaño: 1,001.00 USD > límite 1,000.00 USD`. */
-export function reglaPrincipal(r: { regla: string; observado: string; limite: string }): string {
-  const nombre = NOMBRE_REGLA[r.regla];
+/** `R3 tamaño: 1,001.00 USD > límite 1,000.00 USD`; R11 lleva el activo: `R11 entradas abiertas de BTC/USD: 2 > límite 1`. */
+export function reglaPrincipal(r: { regla: string; observado: string; limite: string }, activo?: string | null): string {
+  const nombre = r.regla === "R11" && activo ? `entradas abiertas de ${activo}` : NOMBRE_REGLA[r.regla];
   const cabeza = nombre ? `${r.regla} ${nombre}` : r.regla;
   const observado = valorRegla(r.observado);
   const limite = valorRegla(r.limite);

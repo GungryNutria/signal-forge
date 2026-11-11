@@ -36,6 +36,11 @@ const ESPERADOS = [
   "precio-historia-incompleta",
   "precio-fuera-del-rango-24h",
   "precio-30-dias",
+  "r11-casos",
+  "r11-anterior",
+  "r11-tope",
+  "r11-dos-proponentes",
+  "deslizamiento",
 ];
 
 let pool: Pool;

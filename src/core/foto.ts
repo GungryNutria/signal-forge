@@ -27,6 +27,8 @@ export type EntradaFoto = {
     exposicionTotalC: number;
     exposicionPorActivoC: Record<Activo, number>;
     lotesAbiertos: number;
+    /** REQ-11: entradas abiertas por activo (REQ-2); 0 si no hay. */
+    entradasAbiertasPorActivo: Record<Activo, number>;
     entradasHoy: number;
     pnlDiaC: number | null;
   };
@@ -46,7 +48,7 @@ const num = (n: number) => String(n);
 const iso = (d: Date) => d.toISOString();
 
 /**
- * Arma `foto-v1` (REQ-23, REQ-24). Todo dato con `ts` posterior a `evaluadaEn` se descarta como faltante,
+ * Arma `foto-v2` (REQ-23, REQ-24). Todo dato con `ts` posterior a `evaluadaEn` se descarta como faltante,
  * y todo lo que no se puede calcular va `null` y nombrado en `faltantes`: nunca se inventa un valor.
  */
 export function armarFoto(e: EntradaFoto) {
@@ -88,7 +90,7 @@ export function armarFoto(e: EntradaFoto) {
   const { cartera: k, regla, investigacion: i } = e;
 
   return {
-    version: "foto-v1" as const,
+    version: "foto-v2" as const,
     momento: { evaluada_en: iso(T), dia_semana_utc: T.getUTCDay(), hora_utc: T.getUTCHours() },
     cartera: {
       saldo_virtual_usd: deCentavos(k.saldoVirtualC),
@@ -98,6 +100,7 @@ export function armarFoto(e: EntradaFoto) {
         Object.entries(k.exposicionPorActivoC).map(([a, v]) => [a, deCentavos(v)]),
       ),
       lotes_abiertos: k.lotesAbiertos,
+      entradas_abiertas_por_activo: k.entradasAbiertasPorActivo,
       entradas_hoy: k.entradasHoy,
       pnl_dia_usd: k.pnlDiaC === null ? null : deCentavos(k.pnlDiaC),
       faltantes: carteraFaltantes,
@@ -138,7 +141,7 @@ export function armarFoto(e: EntradaFoto) {
   };
 }
 
-export type FotoV1 = ReturnType<typeof armarFoto>;
+export type FotoV2 = ReturnType<typeof armarFoto>;
 
 const CLAVES_TS = new Set(["ts", "ts_ultima_barra", "recibida_en"]);
 

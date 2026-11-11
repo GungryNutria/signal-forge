@@ -20,7 +20,7 @@ import {
   evaluaciones,
   eventos,
 } from "@/server/db/esquema";
-import { cargarEnv, type Env } from "@/server/env";
+import { cargarEnv, leerMaxEntradasAbiertas, type Env } from "@/server/env";
 import { guardarLectura } from "@/server/lecturas";
 import { carteraParaFoto, investigacionVigente } from "@/server/foto";
 import { procesarPropuesta, URL_PAPER, type CtxPropuesta } from "@/server/propuestas/procesar";
@@ -130,6 +130,8 @@ async function correr(
   let abortado = false;
 
   const evaluar = async () => {
+    // REQ-8: N se lee al empezar; si es inválida lanza y la ejecución termina en `error` sin evaluar ni proponer.
+    const maxEntradasAbiertasPorActivo = leerMaxEntradasAbiertas();
     const mercado = await leerMercado(deps.datos, new Date(inicio.getTime() - 25 * 60 * MIN), inicio);
     // REQ-24: T se toma después de leer los datos, así que todo dato es anterior o igual a T.
     const T = deps.ahora();
@@ -141,7 +143,7 @@ async function correr(
     for (const activo of ACTIVOS) {
       if (abortado) return;
       try {
-        hechos.push(await evaluarActivo({ deps, db, ejecucionId, ranura, activo, mercado, T, bid, limpiar, fallos, abortado: () => abortado }));
+        hechos.push(await evaluarActivo({ deps, db, ejecucionId, ranura, activo, mercado, T, bid, maxEntradasAbiertasPorActivo, limpiar, fallos, abortado: () => abortado }));
       } catch (e) {
         const detalle = limpiar(comoError(e).message);
         const [fila] = await db
@@ -152,7 +154,7 @@ async function correr(
             evaluadaEn: T,
             resultado: "error",
             versionRegla: TENDENCIA_SMA_V1.version,
-            foto: { version: "foto-v1" },
+            foto: { version: "foto-v2" },
             errorDetalle: detalle,
           })
           .onConflictDoNothing()
@@ -183,7 +185,7 @@ async function correr(
             evaluadaEn: T,
             resultado: "error",
             versionRegla: TENDENCIA_SMA_V1.version,
-            foto: { version: "foto-v1" },
+            foto: { version: "foto-v2" },
             errorDetalle: "plazo interno agotado",
           })
           .onConflictDoNothing()
@@ -225,6 +227,7 @@ type ParamsActivo = {
   mercado: Mercado;
   T: Date;
   bid: Record<Activo, number | null>;
+  maxEntradasAbiertasPorActivo: number;
   limpiar: (t: string) => string;
   fallos: string[];
   abortado: () => boolean;
@@ -311,6 +314,7 @@ async function evaluarActivo(p: ParamsActivo): Promise<ResultadoCiclo["evaluacio
       broker: deps.broker,
       ahora: deps.ahora,
       env: deps.env,
+      maxEntradasAbiertasPorActivo: p.maxEntradasAbiertasPorActivo,
       evaluacionId,
       esperar: deps.esperar,
     });

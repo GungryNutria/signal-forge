@@ -15,7 +15,13 @@ export type EstadoOperacion =
   | "desconocido"
   | "rechazada_broker";
 
-export type ResultadoActivo = { resultado: ResultadoEvaluacion; decision?: Decision; propuestaId?: string };
+/** REQ-23. `reglaPrincipal` solo en `decision === "rechazada"` con reglas incumplidas: la de número menor (p. ej. "R11"). */
+export type ResultadoActivo = {
+  resultado: ResultadoEvaluacion;
+  decision?: Decision;
+  propuestaId?: string;
+  reglaPrincipal?: string;
+};
 /** `null`: el activo no tiene evaluación (ejecución omitida o todavía en curso). */
 export type PorActivo = Record<Activo, ResultadoActivo | null>;
 
@@ -98,6 +104,10 @@ export type ResumenCartera = {
   lotesAbiertos: LoteAbierto[];
   /** true si nunca se ha registrado una ejecución. */
   vacio: boolean;
+  /** REQ-22. Solo activos con ≥ 1 entrada abierta (REQ-2), en el orden de ACTIVOS. */
+  entradasAbiertas: { activo: Activo; n: number }[];
+  /** N vigente leído del entorno en este render; `null` si `MAX_ENTRADAS_ABIERTAS_POR_ACTIVO` es inválida. */
+  topeEntradasPorActivo: number | null;
 };
 
 export type ReglaPrincipal = { regla: string; observado: string; limite: string };
@@ -129,7 +139,7 @@ export type Pagina<F> = { filas: F[]; total: number; siguiente: string | null; a
 
 export type ReglaDetalle = {
   regla: string;
-  estado: "cumple" | "incumple" | "no_aplica";
+  estado: "cumple" | "incumple" | "no_aplica" | "no_evaluada";
   observado: string;
   limite: string;
 };
@@ -166,8 +176,28 @@ export type DetallePropuesta = {
   versionRegla: string | null;
   /** `justificacion` de la regla: `{ entradas, resultado }`. */
   reglaEntrada: unknown;
-  /** R1 a R10, las incumplidas primero. Vacío si la propuesta fue inválida. */
+  /** Las reglas guardadas, las incumplidas primero. Con "R1-R10" se agrega al final R11 como `no_evaluada`. Vacío si la propuesta fue inválida. */
   reglas: ReglaDetalle[];
+  /** Conjunto de reglas con que se evaluó (D-4). `null` si la propuesta no llegó al riesgo (inválida, conflicto, entorno). */
+  reglasAplicadas: "R1-R10" | "R1-R11" | null;
+  /** REQ-19. Solo si el lote se cerró; `null` en abiertas, pendientes, rechazadas por el broker y desconocidas. */
+  salida: null | {
+    motivo: "stop_loss" | "take_profit";
+    /** Precio del nivel tocado (`stop_loss` o `take_profit` del lote). */
+    nivel: string;
+    /** Bid que disparó y hora ISO UTC de su quote; `null` = el cierre es anterior a esta medición. */
+    precioDisparo: string | null;
+    precioDisparoEn: string | null;
+    precioLlenado: string;
+    movimientoUsd: string;
+    movimientoPct: string; // nivel / entrada − 1
+    deslizamientoUsd: string;
+    deslizamientoPct: string; // llenado / nivel − 1
+    comisionUsd: string;
+    comisionPct: string; // comisión / nocional de entrada
+    pnlNetoUsd: string;
+    pnlNetoPct: string;
+  };
   /** Órdenes de la propuesta (entrada y salida). Vacío = nunca llegó al broker. */
   ordenes: OrdenVista[];
   lote: null | {
@@ -231,7 +261,7 @@ export type DetalleEvaluacion = {
   };
   /** `foto.regla`: `{ version, entradas, resultado }` (version null si no hubo datos para evaluarla). */
   regla: unknown;
-  /** `foto-v1` completa. */
+  /** La foto completa (`foto-v2`; las evaluaciones anteriores a la spec 003 traen `foto-v1`). */
   foto: unknown;
   propuesta: null | { id: string; decision: Decision };
   investigacion: InvestigacionVista | null;
@@ -251,6 +281,8 @@ export type Metricas = {
   porMotivo: { motivo: string; n: number }[];
   aprobadas: number;
   rechazadas: number;
+  /** Propuestas (con el filtro de activo) que traen R11 en sus `reglas`. 0 → "No evaluada en este periodo". */
+  r11Evaluadas: number;
 };
 
 // ───────────────────────────── S6 Precio (spec 002) ─────────────────────────────

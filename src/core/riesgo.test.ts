@@ -12,7 +12,9 @@ const limpio: EstadoCartera = {
   pausaAutomatica: false,
   pausaManual: false,
   ordenesDesconocidas: {},
+  entradasAbiertasPorActivo: {},
 };
+const N1 = { maxEntradasAbiertasPorActivo: 1 };
 
 const prop = (cambio: Record<string, unknown> = {}) =>
   PropuestaV1.parse({
@@ -29,7 +31,7 @@ const prop = (cambio: Record<string, unknown> = {}) =>
   });
 
 const falladas = (p: PropuestaV1, e: EstadoCartera) =>
-  evaluarRiesgo(p, e)
+  evaluarRiesgo(p, e, N1)
     .reglas.filter((r) => !r.cumple)
     .map((r) => r.regla);
 
@@ -45,10 +47,11 @@ describe("riesgo: AC-9, cada regla sola con saldo virtual de 10 000", () => {
     ["R8", prop(), { ...limpio, pausaManual: true }],
     ["R9", prop(), { ...limpio, ordenesDesconocidas: { "BTC/USD": 1 } }],
     ["R10", prop({ tipo_orden: "limite" }), limpio],
+    ["R11", prop(), { ...limpio, entradasAbiertasPorActivo: { "BTC/USD": 1 } }],
   ];
 
   it.each(casos)("%s falla sola y nombra valor observado y límite", (id, p, e) => {
-    const { aprobada, reglas } = evaluarRiesgo(p, e);
+    const { aprobada, reglas } = evaluarRiesgo(p, e, N1);
     expect(aprobada).toBe(false);
     expect(falladas(p, e)).toEqual([id]);
     const r = reglas.find((x) => x.regla === id)!;
@@ -57,7 +60,7 @@ describe("riesgo: AC-9, cada regla sola con saldo virtual de 10 000", () => {
   });
 
   it("valores observado/límite legibles", () => {
-    const r = evaluarRiesgo(prop({ nocional_usd: 1001 }), limpio).reglas.find((x) => x.regla === "R3")!;
+    const r = evaluarRiesgo(prop({ nocional_usd: 1001 }), limpio, N1).reglas.find((x) => x.regla === "R3")!;
     expect(r).toMatchObject({ observado: "1001.00 USD", limite: "1000.00 USD", aplica: true, cumple: false });
   });
 
@@ -71,21 +74,21 @@ describe("riesgo: AC-9, cada regla sola con saldo virtual de 10 000", () => {
   });
 
   it("las reglas que no corresponden al lado van con aplica:false y cumplen", () => {
-    const compra = evaluarRiesgo(prop(), limpio).reglas;
+    const compra = evaluarRiesgo(prop(), limpio, N1).reglas;
     expect(compra.find((r) => r.regla === "R2")).toMatchObject({ aplica: false, cumple: true });
     const venta = evaluarRiesgo(prop({ lado: "sell", nocional_usd: undefined, cantidad: 0.1 }), {
       ...limpio,
       cantidadPorActivo: { "BTC/USD": 0.2 },
-    });
+    }, N1);
     expect(venta.aprobada).toBe(true);
-    for (const id of ["R3", "R4", "R5", "R6", "R7"]) {
+    for (const id of ["R3", "R4", "R5", "R6", "R7", "R11"]) {
       expect(venta.reglas.find((r) => r.regla === id)?.aplica).toBe(false);
     }
   });
 
-  it("siempre devuelve las diez reglas en orden", () => {
-    expect(evaluarRiesgo(prop(), limpio).reglas.map((r) => r.regla)).toEqual([
-      "R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8", "R9", "R10",
+  it("siempre devuelve las once reglas en orden", () => {
+    expect(evaluarRiesgo(prop(), limpio, N1).reglas.map((r) => r.regla)).toEqual([
+      "R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8", "R9", "R10", "R11",
     ]);
   });
 });
@@ -93,9 +96,9 @@ describe("riesgo: AC-9, cada regla sola con saldo virtual de 10 000", () => {
 describe("AC-10: determinismo", () => {
   it("la compra de 1 000 USD con cartera vacía se aprueba, 100 veces idéntica", () => {
     const p = prop({ nocional_usd: 1000 });
-    const primera = evaluarRiesgo(p, limpio);
+    const primera = evaluarRiesgo(p, limpio, N1);
     expect(primera.aprobada).toBe(true);
-    for (let i = 0; i < 100; i++) expect(evaluarRiesgo(p, limpio)).toEqual(primera);
+    for (let i = 0; i < 100; i++) expect(evaluarRiesgo(p, limpio, N1)).toEqual(primera);
   });
 });
 
@@ -121,5 +124,38 @@ describe("AC-25: pérdida diaria", () => {
     const lote = { activo: "BTC/USD", nocionalEntradaC: 500_000, cantidadNeta: cantidadNeta(50) };
     const { pnlC } = pnlDia(0, [lote], { "BTC/USD": 90 });
     expect(debePausar(pnlC, 1_000_000)).toBe(true);
+  });
+});
+
+describe("R11: entradas abiertas por activo (spec 003)", () => {
+  const con = (abiertas: Record<string, number>) => ({ ...limpio, entradasAbiertasPorActivo: abiertas });
+  const r11 = (p: PropuestaV1, e: EstadoCartera, max = 1) =>
+    evaluarRiesgo(p, e, { maxEntradasAbiertasPorActivo: max }).reglas.find((r) => r.regla === "R11")!;
+
+  it("AC-1: N = 1 con una abierta incumple y nombra '2' y '1'; con cero cumple", () => {
+    expect(r11(prop(), con({ "BTC/USD": 1 }))).toMatchObject({ aplica: true, cumple: false, observado: "2", limite: "1" });
+    expect(r11(prop(), con({}))).toMatchObject({ cumple: true, observado: "1", limite: "1" });
+  });
+
+  it("el límite viene de la configuración: N = 2 admite una abierta pero no dos", () => {
+    expect(r11(prop(), con({ "BTC/USD": 1 }), 2)).toMatchObject({ cumple: true, observado: "2", limite: "2" });
+    expect(r11(prop(), con({ "BTC/USD": 2 }), 2)).toMatchObject({ cumple: false, observado: "3", limite: "2" });
+  });
+
+  it("AC-2: R11 con R8 las nombra las dos, en orden", () => {
+    expect(falladas(prop(), { ...con({ "BTC/USD": 1 }), pausaManual: true })).toEqual(["R8", "R11"]);
+  });
+
+  it("AC-3: en una venta R11 va con aplica:false, cumple y los mismos valores", () => {
+    const venta = prop({ lado: "sell", nocional_usd: undefined, cantidad: 0.1 });
+    const e = { ...con({ "BTC/USD": 3 }), cantidadPorActivo: { "BTC/USD": 0.2 } };
+    expect(r11(venta, e)).toMatchObject({ aplica: false, cumple: true, observado: "4", limite: "1" });
+    expect(evaluarRiesgo(venta, e, N1).aprobada).toBe(true);
+  });
+
+  it("AC-5: es por activo; SOL en su tope no bloquea a BTC", () => {
+    const e = con({ "SOL/USD": 1 });
+    expect(r11(prop(), e).cumple).toBe(true);
+    expect(r11(prop({ activo: "SOL/USD" }), e).cumple).toBe(false);
   });
 });

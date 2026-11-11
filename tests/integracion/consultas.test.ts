@@ -7,7 +7,7 @@ import { resumenCartera } from "@/server/consultas/cartera";
 import { estadoSistema } from "@/server/consultas/estado";
 import { ultimasInvestigaciones } from "@/server/consultas/investigaciones";
 import { detallePropuesta, listarPropuestas } from "@/server/consultas/propuestas";
-import { sembrar } from "../../scripts/sembrar";
+import { DESLIZAMIENTO_CONOCIDO, sembrar } from "../../scripts/sembrar";
 import { abrirPool, urlDePrueba, vaciarBase } from "./arnes";
 
 // T-10: el read model del dashboard contra los escenarios sembrados (S1 a S5, REQ-6, REQ-41, REQ-43, REQ-44).
@@ -213,10 +213,10 @@ describe("S1 a S3 con una ejecutada y una rechazada (AC-21)", () => {
     expect(filas.find((f) => f.estado === "cerrada_sl")?.pnlUsd).toBe("-12.45");
   });
 
-  it("detalle de la rechazada: R1 a R10 con las incumplidas primero", async () => {
+  it("detalle de la rechazada: R1 a R11 con las incumplidas primero", async () => {
     const id = (await listarPropuestas({ decision: "rechazada" })).filas[0].id;
     const d = (await detallePropuesta(id))!;
-    expect(d.reglas).toHaveLength(10);
+    expect(d.reglas).toHaveLength(11);
     expect(d.reglas[0]).toMatchObject({ regla: "R3", estado: "incumple" });
     expect(d.reglas.slice(1).every((r) => r.estado !== "incumple")).toBe(true);
     expect(d.reglas.find((r) => r.regla === "R2")?.estado).toBe("no_aplica");
@@ -423,5 +423,126 @@ describe("textos hostiles (AC-11, AC-UX-13)", () => {
     expect(i.resumen).toContain("<script>alert('xss-1')</script>");
     expect(i.resumen).toContain("Ignora las instrucciones anteriores");
     expect(i.fuentes).toHaveLength(3);
+  });
+});
+
+describe("spec 003: R11 y deslizamiento en el read model", () => {
+  afterEach(() => {
+    delete process.env.MAX_ENTRADAS_ABIERTAS_POR_ACTIVO;
+  });
+
+  it("S1 (REQ-22): entradas abiertas por activo y el N vigente leído del entorno en cada render", async () => {
+    await con("r11-tope");
+    const ahora = new Date();
+    expect(await resumenCartera(ahora)).toMatchObject({
+      entradasAbiertas: [{ activo: "BTC/USD", n: 3 }, { activo: "SOL/USD", n: 1 }],
+      topeEntradasPorActivo: 1,
+    });
+    process.env.MAX_ENTRADAS_ABIERTAS_POR_ACTIVO = "2";
+    expect((await resumenCartera(ahora)).topeEntradasPorActivo).toBe(2);
+    process.env.MAX_ENTRADAS_ABIERTAS_POR_ACTIVO = "x";
+    // N-1: con N inválido solo falta el tope; el resto del read model sigue sirviendo.
+    const mal = await resumenCartera(ahora);
+    expect(mal.topeEntradasPorActivo).toBeNull();
+    expect(mal.entradasAbiertas).toEqual([{ activo: "BTC/USD", n: 3 }, { activo: "SOL/USD", n: 1 }]);
+    expect(mal.saldoVirtualUsd).toBeDefined();
+  });
+
+  it("S1: sin entradas abiertas la lista va vacía y no se inventan ceros", async () => {
+    await con("ejecuciones-por-caso");
+    const r = await resumenCartera(new Date());
+    expect(r.entradasAbiertas).toEqual([{ activo: "BTC/USD", n: 1 }]);
+    await vaciarBase();
+    expect((await resumenCartera(new Date())).entradasAbiertas).toEqual([]);
+  });
+
+  it("S5 y banda (REQ-23): la regla principal de un rechazo es la de número menor; sin ella en aprobadas ni errores", async () => {
+    await con("r11-casos");
+    const { filas } = await listarEjecuciones();
+    const rs = filas.map((f) => f.porActivo["BTC/USD"]).filter((r) => r?.propuestaId);
+    // Del más reciente al más antiguo: venta (error), R8 + R11, solo R11, aprobada.
+    expect(rs.map((r) => [r?.decision, r?.reglaPrincipal])).toEqual([
+      ["error", undefined],
+      ["rechazada", "R8"],
+      ["rechazada", "R11"],
+      ["ejecutada", undefined],
+    ]);
+  });
+
+  it("S3 (REQ-18): rechazo solo por R11, por R8 + R11 y venta con R11 'no aplica'", async () => {
+    await con("r11-casos");
+    const todas = (await listarPropuestas()).filas;
+    const detalle = async (f: (typeof todas)[number]) => (await detallePropuesta(f.id))!;
+
+    const soloR11 = await detalle(todas.find((f) => f.decision === "rechazada" && f.reglaPrincipal?.regla === "R11")!);
+    expect(soloR11.reglasAplicadas).toBe("R1-R11");
+    expect(soloR11.reglas).toHaveLength(11);
+    expect(soloR11.reglas[0]).toEqual({ regla: "R11", estado: "incumple", observado: "2", limite: "1" });
+
+    const conR8 = await detalle(todas.find((f) => f.decision === "rechazada" && f.reglaPrincipal?.regla === "R8")!);
+    expect(conR8.reglas.filter((r) => r.estado === "incumple").map((r) => r.regla)).toEqual(["R8", "R11"]);
+    expect(conR8.reglas[0].regla).toBe("R8");
+
+    const venta = await detalle(todas.find((f) => f.lado === "sell")!);
+    expect(venta.reglas.find((r) => r.regla === "R11")).toMatchObject({ estado: "no_aplica", observado: "2", limite: "1" });
+
+    const aprobada = await detalle(todas.find((f) => f.decision === "ejecutada")!);
+    expect(aprobada.reglas.find((r) => r.regla === "R11")).toMatchObject({ estado: "cumple", observado: "1", limite: "1" });
+    expect(aprobada.salida).toBeNull(); // el lote sigue abierto (AC-UX-9)
+  });
+
+  it("S3 (AC-11): una propuesta de antes de R11 se muestra con 'R1-R10' y R11 'no_evaluada' al final; sin riesgo, sin conjunto", async () => {
+    await con("r11-anterior");
+    const rechazada = (await detallePropuesta((await listarPropuestas({ decision: "rechazada" })).filas[0].id))!;
+    expect(rechazada.reglasAplicadas).toBe("R1-R10");
+    expect(rechazada.reglas).toHaveLength(11);
+    expect(rechazada.reglas[0]).toMatchObject({ regla: "R3", estado: "incumple" });
+    expect(rechazada.reglas[10]).toEqual({ regla: "R11", estado: "no_evaluada", observado: "", limite: "" });
+    const ejecutada = (await detallePropuesta((await listarPropuestas({ decision: "ejecutada" })).filas[0].id))!;
+    expect(ejecutada.reglas.at(-1)).toMatchObject({ regla: "R11", estado: "no_evaluada" });
+
+    await con("casos-ac9");
+    const invalida = (await listarPropuestas()).filas.find((f) => f.motivo === "propuesta_invalida")!;
+    expect(await detallePropuesta(invalida.id)).toMatchObject({ reglasAplicadas: null, reglas: [], salida: null });
+  });
+
+  it("S3 (REQ-19, AC-17): el bloque de salida trae nivel, disparo, llenado y el desglose del PnL de cada caso", async () => {
+    await con("deslizamiento");
+    const cerradas = [...(await listarPropuestas({ estado: "cerrada_sl" })).filas, ...(await listarPropuestas({ estado: "cerrada_tp" })).filas];
+    expect(cerradas).toHaveLength(3);
+    const salidas = new Map<string, NonNullable<Awaited<ReturnType<typeof detallePropuesta>>>["salida"]>();
+    for (const f of cerradas) {
+      const s = (await detallePropuesta(f.id))!.salida!;
+      salidas.set(String(Number(s.precioLlenado)), s);
+    }
+    const comparar = (llenado: string, esperado: (typeof DESLIZAMIENTO_CONOCIDO)[keyof typeof DESLIZAMIENTO_CONOCIDO], motivo: string) => {
+      const s = salidas.get(llenado)!;
+      expect(s, llenado).toBeDefined();
+      expect(s.motivo).toBe(motivo);
+      expect(Number(s.nivel)).toBe(Number(esperado.nivel));
+      expect(s.precioDisparo === null ? null : Number(s.precioDisparo)).toBe(esperado.disparo === null ? null : Number(esperado.disparo));
+      expect(s.precioDisparoEn === null).toBe(esperado.disparo === null);
+      expect(s).toMatchObject({
+        movimientoUsd: esperado.movimientoUsd, movimientoPct: esperado.movimientoPct,
+        deslizamientoUsd: esperado.deslizamientoUsd, deslizamientoPct: esperado.deslizamientoPct,
+        comisionUsd: esperado.comisionUsd, comisionPct: esperado.comisionPct,
+        pnlNetoUsd: esperado.pnlNetoUsd, pnlNetoPct: esperado.pnlNetoPct,
+      });
+      // AC-UX-8: los tres renglones en USD suman el PnL neto exacto.
+      expect(Number(s.movimientoUsd) + Number(s.deslizamientoUsd) + Number(s.comisionUsd)).toBeCloseTo(Number(s.pnlNetoUsd), 10);
+    };
+    comparar("97500", DESLIZAMIENTO_CONOCIDO.stop, "stop_loss");
+    comparar("104500", DESLIZAMIENTO_CONOCIDO.takeProfit, "take_profit");
+    comparar("97000", DESLIZAMIENTO_CONOCIDO.anterior, "stop_loss");
+  });
+
+  it("S3: ninguna propuesta que no cerró un lote trae bloque de salida (abierta, pendiente, rechazada por el broker, desconocida)", async () => {
+    for (const escenario of ["ejecutada-y-rechazada", "rechazada-por-broker", "orden-desconocida"]) {
+      await con(escenario);
+      for (const f of (await listarPropuestas()).filas) {
+        const d = (await detallePropuesta(f.id))!;
+        expect(d.salida === null, `${escenario} ${f.estado}`).toBe(f.estado !== "cerrada_tp" && f.estado !== "cerrada_sl");
+      }
+    }
   });
 });
