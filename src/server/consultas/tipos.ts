@@ -424,6 +424,8 @@ export type FilaRanura = {
   modo: Modo | null;
   versionInstrucciones: string | null;
   porActivo: Record<Activo, ResultadoDecisorActivo>;
+  /** Envíos inválidos sin activo (no caben en `porActivo`), en orden de llegada. */
+  sinActivo: { decisionId: string; motivo: string }[];
 };
 /** `total` sin las ranuras "apagado". */
 export type PorcentajeRanuras = { completas: number; total: number; pct: string | null };

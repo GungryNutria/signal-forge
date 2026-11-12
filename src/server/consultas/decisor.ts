@@ -283,6 +283,7 @@ async function cargarRanuras(ahora: Date, rango: { desde?: Date; hasta?: Date } 
       modo,
       versionInstrucciones: (propios.find((e) => e.valida) ?? propios.find((e) => e.version_instrucciones))?.version_instrucciones ?? null,
       porActivo,
+      sinActivo: propios.filter((e) => e.activo === null).map((e) => ({ decisionId: e.id, motivo: e.motivo ?? "desconocido" })),
     };
   });
 }

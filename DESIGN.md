@@ -5,7 +5,7 @@ type: design
 tags: [signalforge, ux, design-system]
 project: signalforge
 status: active
-updated: 2026-11-06
+updated: 2026-11-12
 owner: ux-lead
 colors:
   bg: "#161513"
@@ -106,12 +106,13 @@ components:
 # Design System: SignalForge
 
 > Dirección del `ux-lead` para la [[workspaces/signalforge/specs/001-paper-trading-con-agente-programado/spec|spec 001]]. Contexto de producto: [[workspaces/signalforge/PRODUCT|PRODUCT.md]]. Es **propuesta de dirección** hasta la Puerta de diseño (Edgardo); lo que se descubra en FigCraft se corrige aquí, no en silencio.
+> Ampliado el 2026-11-10 con el vocabulario de la [[workspaces/signalforge/specs/003-limite-de-entradas-abiertas-por-activo/spec|spec 003]] (R11, T-5) y de la [[workspaces/signalforge/specs/004-decisor-agente-programado/spec|spec 004]] (decisor, T-6): ver [[#Vocabulario fijo de las specs 003 y 004]]. El layout de la banda con el grupo Decisor y de S4 "Decisor frente a regla" lo fija T-7 de la 004 en FigCraft: aquí van solo textos, severidades y reglas.
 
 ## Overview
 
 **Modo Operate.** Un tablero de consulta, no una terminal de trading. Mundo visual: **bitácora de laboratorio de noche**: carbón cálido (no negro puro), tinta clara color papel, cifras tabulares alineadas, bordes finos y casi sin decoración. Se aleja a propósito del cliché "fondo negro con verde neón": aquí nada invita a operar; todo invita a leer y verificar.
 
-Jerarquía fija en todas las superficies: **1) salud del sistema** (banda) → **2) dinero** (saldo y PnL) → **3) detalle** (posiciones, propuestas) → **4) investigación** (informativa, al final o a un lado, con su rótulo).
+Jerarquía fija en todas las superficies: **1) salud del sistema** (banda) → **2) dinero** (saldo y PnL) → **3) detalle** (posiciones, propuestas) → **4) investigación** (informativa, al final o a un lado, con su rótulo). En S3 y en el detalle de una decisión del decisor, la investigación no va suelta: va dentro de "Contexto que vio el decisor", el último bloque.
 
 Tema: **solo oscuro** en la etapa 1 (cambio de dirección de Edgardo, 2026-11-06: "pásalos a darkmode"; sustituye al tema claro). Mismos nombres semánticos, así que un tema claro sería un segundo modo después, sin rediseño. Valores del claro archivados al final de este archivo. Profundidad por luminosidad: `bg` < `surface` < `sunken` (el hundido es el más claro de los tres, solo para cabeceras de tabla y esqueletos).
 
@@ -121,15 +122,16 @@ Todos los pares de texto cumplen 4.5:1 sobre `bg`, `surface` y `sunken` (calcula
 
 - **Neutros:** `bg` página, `surface` tarjetas, `sunken` esqueletos de carga y fondos de tabla de cabecera, `border` divisores decorativos (no portan significado), `border-strong` bordes que sí lo portan.
 - **`accent`** azul tinta: **solo** enlaces, navegación activa y anillo de foco. Nunca para estado ni dinero.
-- **`pos` / `neg`:** **solo dinero** (PnL, drawdown) y los cierres "Cerrada por take profit" / "Cerrada por stop loss". `neg` además es la severidad de alerta.
-- **`warn`:** anomalías que requieren atención pero no son pérdida (Conflicto, Datos no disponibles, Rechazada por el broker, Estado desconocido, valores desactualizados, Pausa manual).
+- **`pos` / `neg`:** **solo dinero real** (PnL, drawdown) y los cierres "Cerrada por take profit" / "Cerrada por stop loss". `neg` además es la severidad de alerta. Lo hipotético (resultados "Habría cerrado por…", PnL hipotético) y el PnL a nivel van con signo pero en `text`, nunca en `pos`/`neg` (AC-UX-14 de 004); el deslizamiento también va en `text` (AC-UX-9 de 003).
+- **`warn`:** anomalías que requieren atención pero no son pérdida (Conflicto, Datos no disponibles, Rechazada por el broker, Estado desconocido, valores desactualizados, Pausa manual; de la spec 004: ranuras Parcial, Inválida y Sin llegar, y el decisor degradado a Solo registra).
 - **`info`:** únicamente la identidad del bloque Investigación y "Abierta".
 
 ### Named Rules
 
 - **Signo antes que color.** Todo importe o porcentaje con signo explícito: `+` y el signo menos tipográfico `−` (U+2212). El cero va sin signo y en `text`. Ejemplos: `+128.40 USD`, `−312.40 USD (−3.12 %)`.
 - **Tinte nunca solo.** Los tintes `-bg` contrastan 1.06–1.14 con `surface` en oscuro: toda caja tintada lleva además un borde izquierdo de 3 px del color semántico, icono y texto.
-- **Neutral es normal.** "Sin señal", "Omitida por solapamiento", "Pendiente", "No aplica" y "Rechazada" (por riesgo: el sistema funcionó) van en neutro, nunca en `neg` ni `warn`.
+- **Neutral es normal.** "Sin señal", "Omitida por solapamiento", "Pendiente", "No aplica" y "Rechazada" (por riesgo: el sistema funcionó, también con su regla: "Rechazada (R11 entradas abiertas)") van en neutro, nunca en `neg` ni `warn`. Igual: "No evaluada", un activo en su tope de R11, "No comprar", "Comprar (solo registro)", "Señal (solo registro)", la ranura Completa o Apagado, todo resultado hipotético y "Sin precio de entrada".
+- **La severidad sigue al modo.** Una alerta de un proponente que **Ejecuta** es `neg`; la misma alerta con el proponente en **Solo registra** es `warn`; con el proponente **Apagado** no hay alerta (AC-UX-3 de 004).
 
 ## Typography
 
@@ -173,16 +175,20 @@ Plano. Sin sombras: separación por `surface` sobre `bg` y bordes de 1 px `borde
 
 ### Banda de estado (componente insignia)
 
-Una franja `surface` de ancho completo con 4 grupos en línea (escritorio) o apilados en 2 filas compactas (móvil), y debajo las alertas:
+Una franja `surface` de ancho completo con 4 grupos en línea (escritorio) o apilados en 2 filas compactas (móvil), y debajo las alertas. Con la spec 004 se agrega un quinto grupo (Decisor) y el grupo 1 nombra a los proponentes; su acomodo, sobre todo a 390×844 sin scroll, lo define T-7 de la 004 (O-UX-8):
 
-1. **Modo de trading:** chip con icono. Operando (punto `pos` + texto), Pausa manual (`warn`), Pausa automática por pérdida diaria (`neg`).
+1. **Modo de trading:** chip con icono. Operando (punto `pos` + texto), Pausa manual (`warn`), Pausa automática por pérdida diaria (`neg`). Junto al chip, en neutro, quién ejecuta y el modo del otro: "Ejecuta: Decisor · Ciclo: Solo registra"; si ninguno ejecuta, "Ejecuta: ninguno" seguido de los dos modos efectivos ("Ejecuta: ninguno · Ciclo: Solo registra · Decisor: Solo registra", p. ej. con el decisor degradado por R11); con la configuración inválida, solo "Ejecuta: ninguno" y la alerta (spec 004, T-8).
 2. **Última ejecución:** `14:30 (UTC−6) · hace 12 min` y resultado por activo: `BTC/USD Sin señal · SOL/USD Propuesta: Ejecutada`. Todo el grupo es un enlace a S5 (AC-UX-28).
 3. **Investigación:** por activo, `BTC/USD 14:15 · Vigente` / `SOL/USD 13:15 · Vencida`.
 4. **Datos de las** `14:42:05 (UTC−6)`.
+5. **Decisor** (spec 004): última ranura con hora absoluta y relativa, estado y resultado por activo: `12:45 a 13:45 (UTC−6) · terminó hace 57 min · Completa · BTC/USD No comprar · SOL/USD Comprar: Ejecutada`. Todo el grupo es un enlace a S5 en la vista Decisor. Sin decisor: "Decisor: Apagado". Activado sin ranuras: "Decisor: Ejecuta · sin ranuras todavía. Corre cada hora en el minuto 45; la próxima ranura empieza a las HH:45 (UTC−6)".
 
 **Alertas** (debajo, una por fila, `alert-neg` o `alert-warn` con borde izquierdo de 3 px, icono y texto; solo las que apliquen):
 
-- Ciclo detenido (`neg`): "El ciclo no corre desde 13:30 (UTC−6) · hace 52 min".
+- Ciclo detenido (`neg` si el ciclo Ejecuta, `warn` si Solo registra, sin alerta si está Apagado): "El ciclo no corre desde 13:30 (UTC−6) · hace 52 min".
+- Decisor sin decisión válida de un activo por más de 2 h (`neg` si el decisor Ejecuta, `warn` si Solo registra, sin alerta si está Apagado; una por activo): "SOL/USD: sin decisión válida del decisor desde HH:MM (UTC−6) · hace 2 h 1 min"; sin ninguna desde la activación: "… desde su activación (DD nov HH:MM)".
+- Configuración inválida (`neg`): "Configuración inválida: el ciclo y el decisor están en Ejecuta. No se ejecuta ninguna propuesta hasta corregir la configuración del despliegue".
+- Decisor degradado (`warn`): "El decisor está configurado en Ejecuta, pero opera en Solo registra porque R11 no está en vigor".
 - Investigación sin llegar (`warn`): "SOL/USD: sin investigación aceptada desde 12:15 (UTC−6)".
 - Broker sin respuesta (`neg`): "El broker no responde desde 14:02 (UTC−6). Los valores que dependen de él no están actualizados".
 - Estado desconocido (`warn`): "BTC/USD: nuevas propuestas bloqueadas hasta reconciliar la orden" + enlace "Ver orden".
@@ -202,6 +208,15 @@ Texto siempre visible; color e icono solo refuerzan. Estilo: borde 1 px + texto 
 | Resultado de ejecución | Sin señal, Propuesta, Omitida por solapamiento | | | Error | Datos no disponibles |
 | Investigación | Sin investigación | Vigente | | | Vencida |
 | Etiqueta | Pendiente, No aplica | | Éxito (1) | Sin éxito (0) | |
+| Regla de riesgo (003) | Cumple, Incumple, No aplica, No evaluada | | | | |
+| Decisión del decisor (004) | Comprar, No comprar | | | | |
+| Resultado de ranura por activo (004) | Comprar: {decisión}, Comprar (solo registro), No comprar, Sin decisión | | | | Inválida ({motivo}) |
+| Estado de ranura (004) | Completa, Apagado, en curso | | | | Parcial, Inválida, Sin llegar |
+| Resultado del ciclo (004) | Señal (solo registro) | | | | |
+| Resultado hipotético (004) | Habría cerrado por take profit, Habría cerrado por stop loss, Pendiente (hipotético), Sin precio de entrada | | | | |
+| Proponente y modo (004) | Ciclo, Decisor; Ejecuta, Solo registra, Apagado | | | | |
+
+"Incumple" va en neutro: es el motivo de un rechazo por riesgo, no una falla. "Comprar: {decisión}" toma el estilo de la decisión de la propuesta (Ejecutada con relleno `text`, Rechazada neutra, Error `neg`). "Inválida ({motivo})" es `warn` como texto en S5 y en la banda, pero no genera alerta: la alerta es la de 2 h sin decisión válida.
 
 ### Tarjeta KPI
 
@@ -209,7 +224,16 @@ Etiqueta (`label`, `text-muted`) → valor (`kpi`/`kpi-lg`, con signo y color si
 
 ### Bloque Investigación
 
-Tarjeta con **borde discontinuo** de 1 px `border-strong` (la única superficie discontinua del sistema: significa "dato adjunto, no decisión") y cabecera `info`: "Investigación" + rótulo fijo **"Informativa: no interviene en la decisión de entrada"**. Por activo: hora y antigüedad, chip Vigente/Vencida con su texto completo ("Vigente: se adjunta a las evaluaciones" / "Vencida: las evaluaciones van sin investigación"), sentimiento con signo y escala, noticia fuerte Sí/No, confianza con escala, **resumen completo** en `body` como texto literal, fuentes como lista: **dominio** en `label` + título + icono de enlace externo.
+Tarjeta con **borde discontinuo** de 1 px `border-strong` (la única superficie discontinua del sistema: significa "dato adjunto, no decisión") y cabecera `info`: "Investigación" + rótulo según dónde aparece (AC-UX-9 de 004; sustituye al rótulo único de 001):
+
+| Dónde | Rótulo |
+|---|---|
+| S3 y evaluaciones del ciclo | "Informativa: no interviene en la decisión de entrada" |
+| S1, con el decisor Apagado | "Informativa: no interviene en la decisión de entrada" |
+| S1, con el decisor en Ejecuta o Solo registra | "La lee el decisor al decidir. La regla fija no la usa" |
+| Dentro de "Contexto que vio el decisor" (S3 y detalle de decisión) | "Leída por el decisor: forma parte del contexto con el que decidió" |
+
+Ningún texto dice que una entrada se hizo "por" la investigación. Contenido del bloque: Por activo: hora y antigüedad, chip Vigente/Vencida con su texto completo ("Vigente: se adjunta a las evaluaciones" / "Vencida: las evaluaciones van sin investigación"), sentimiento con signo y escala, noticia fuerte Sí/No, confianza con escala, **resumen completo** en `body` como texto literal, fuentes como lista: **dominio** en `label` + título + icono de enlace externo.
 
 ### Estados de bloque
 
@@ -225,13 +249,61 @@ Escritorio: pestañas de texto en la cabecera; la activa con subrayado de 2 px `
 
 Cabecera `label` sobre `sunken`; cifras alineadas a la derecha; fila entera clicable hacia el detalle, con foco visible en la fila.
 
+## Vocabulario fijo de las specs 003 y 004
+
+Texto exacto, palabra por palabra; `_lib/formato.ts` lo replica. Fuente: los apartados "Vocabulario que se agrega" y los AC-UX de cada spec.
+
+### Spec 003: R11 (T-5, O-UX-4)
+
+- **Nombre de la regla:** "R11 entradas abiertas por activo" (S3, S4). **Nombre corto** (banda y S5): "R11 entradas abiertas". Igual para cualquier proponente (AC-UX-7 de 003).
+- **Resultado de una regla de riesgo:** Cumple · Incumple · No aplica · **No evaluada**. "No evaluada": la propuesta se evaluó con un conjunto de reglas que no incluía esa regla. Neutro, con texto propio y distinguible en escala de grises (AC-UX-3 de 003).
+- **Valor y límite:** en S2, "R11 entradas abiertas de BTC/USD: 2 > límite 1". En S3, el desglose "1 abierta + esta propuesta = 2 · límite 1". En una propuesta anterior a R11: "No evaluada" con "Esta propuesta se evaluó con R1 a R10".
+- **Título de la tabla en S3:** "Reglas de riesgo" (ya no "Reglas de riesgo R1 a R10"), con "Conjunto aplicado: R1 a R11" o "Conjunto aplicado: R1 a R10" (AC-UX-2 de 003).
+- **Rechazo con su regla principal** (banda y S5, todas las reglas): patrón "Rechazada (<nombre corto de la regla>)", p. ej. "Rechazada (R11 entradas abiertas)" y "Rechazada (R8 pausa manual)". La regla principal es la incumplida de número menor.
+- **Nombres de las reglas de riesgo en el tablero** (fuente única; decidido por el `ux-lead` en T-7 de 003, 2026-11-10). Valen los que ya entregó el código (`NOMBRE_REGLA` de `_lib/formato.ts`, en producción desde 001 y cubiertos por sus E2E), no los de la tabla de reglas de la spec 001, que queda como definición de cada regla y no como texto de pantalla:
+
+  | Regla | Nombre (S2, S3, S4) | Nombre corto (banda y S5) | Nombre en la tabla de 001 |
+  |---|---|---|---|
+  | R1 | R1 activo | R1 activo | activo permitido |
+  | R2 | R2 venta | R2 venta | solo largo |
+  | R3 | R3 tamaño | R3 tamaño | tamaño por operación |
+  | R4 | R4 exposición | R4 exposición | exposición total |
+  | R5 | R5 entradas del día | R5 entradas del día | operaciones por día |
+  | R6 | R6 pausa automática | R6 pausa automática | pérdida diaria |
+  | R7 | R7 saldo libre | R7 saldo libre | saldo suficiente |
+  | R8 | R8 pausa manual | R8 pausa manual | pausa manual |
+  | R9 | R9 orden desconocida | R9 orden desconocida | estado limpio |
+  | R10 | R10 tipo de orden | R10 tipo de orden | tipo de orden |
+  | R11 | R11 entradas abiertas por activo | R11 entradas abiertas | (spec 003) |
+
+  Por qué: nombran lo que la regla revisa en el momento del rechazo ("pausa automática", "saldo libre", "orden desconocida"), que es lo que Edgardo necesita leer en "Rechazada (…)"; el nombre de la tabla de 001 nombra la política. Una regla nueva o un cambio de nombre se decide aquí primero.
+- **S1, Posiciones abiertas:** "SOL/USD · 1 entrada abierta · tope 2"; en el tope o por encima, "BTC/USD · 3 entradas abiertas · tope 1: las entradas nuevas se rechazan por R11". Neutro, sin alerta. Si el tope configurado no es válido: "BTC/USD · 3 entradas abiertas · tope no disponible", sin la frase de rechazo y también neutro.
+- **S4:** "R11 entradas abiertas por activo" con su conteo; sin propuestas evaluadas con R11 en el periodo, "No evaluada en este periodo" (nunca 0).
+- **Salida en S3:** "No registrado: el cierre es anterior a esta medición"; el deslizamiento de precio "(sin comisiones)" va con signo y en `text`.
+
+### Spec 004: decisor (T-6, O-UX-9)
+
+- **Proponente:** Ciclo · Decisor. En la consulta de S6: "Proponente: Ciclo" / "Proponente: Decisor".
+- **Modo:** Ejecuta · Solo registra · Apagado. Banda: "Ejecuta: Decisor · Ciclo: Solo registra"; si ninguno ejecuta, "Ejecuta: ninguno · Ciclo: {modo} · Decisor: {modo}" (con la configuración inválida, solo "Ejecuta: ninguno"). Donde se nombra un modo, el texto dice que se cambia en la configuración del despliegue.
+- **Decisión del decisor:** Comprar · No comprar. Confianza: "0.72 en escala 0 a 1".
+- **Resultado por activo de una ranura:** "Comprar: {decisión de la propuesta}" ("Comprar: Ejecutada", "Comprar: Rechazada (R11 entradas abiertas)") · "Comprar (solo registro)" · "No comprar" · "Inválida ({motivo})" ("Inválida (Contexto vencido)") · "Sin decisión". Un `comprar` válido sin propuesta porque el activo estaba en Datos no disponibles: "Comprar: Rechazada (Datos no disponibles)"; la opción del filtro de S5 usa el mismo texto. Un envío inválido sin activo se muestra en su ranura como "Envío inválido sin activo" con su chip "Inválida (Decisión inválida)" y enlace al detalle; nunca se esconde tras "Sin decisión" (T-12).
+- **Motivos del sistema para una decisión sin propuesta:** Decisión inválida · Contexto vencido · Decisor apagado · Datos no disponibles · Conflicto. En el detalle, con su dato registrado: "Contexto vencido: contexto de hace 16 min, máximo 15".
+- **Estado de una ranura:** Completa · Parcial · Inválida · Sin llegar · Apagado (fuera de los porcentajes) · "en curso" (solo si ya tiene envíos). Rango: "13:45 a 14:45 (UTC−6)". Porcentaje: "92 %, 22 de 24 ranuras". Sin llegar: "La ranura terminó sin envíos del decisor. Puede ser que la tarea no corrió o que se rechazó por el límite de uso de la suscripción; el historial de la tarea programada lo dice". S5 Decisor apagado: "El decisor está apagado. Se activa en la configuración del despliegue".
+- **Ciclo en Solo registra:** "Señal (solo registro)", nunca "Propuesta".
+- **Bloques de S3 y del detalle de decisión:** "Decisión del decisor" (sustituye a "Regla de entrada evaluada"), "Contexto que vio el decisor" (con "contexto de hace 6 min") y el contenedor "Razonamiento del decisor (texto del agente, literal)", visualmente distinto de los campos del sistema (AC-UX-8). Dato faltante: "No disponible".
+- **Resultado hipotético** (con la palabra "hipotético" junto a toda cifra hipotética, en `text`): "Habría cerrado por take profit" · "Habría cerrado por stop loss" · "Pendiente (hipotético)" · "Sin precio de entrada". Hueco de muestras dentro de un resultado: "Sin datos de precio de 14:00 a 15:30 (UTC−6)".
+- **"Sin precio de entrada"** (`sin_precio_entrada`, O-2 del plan de 004): entrada evitada o señal registrada cuyo activo estaba en "Datos no disponibles" al decidir, así que no hay precio para calcular el hipotético. Detalle: "Sin precio de entrada: el activo no tenía datos de mercado al decidir, así que no se calcula un resultado hipotético". En la comparación se cuenta aparte ("Sin precio de entrada: N"), fuera de stop loss, take profit y pendientes, y fuera de la tasa de aciertos; es una opción más del filtro por resultado hipotético. Neutro. "Sin datos de precio" **no** se usa para este caso: queda solo para los huecos de muestras.
+- **Comparación (S4 "Decisor frente a regla"):** "PnL a nivel (comparable)" · "PnL neto real" · "Bloqueadas por el tope (hipotético)" · "Entradas evitadas" (todas las `no comprar` del decisor; ese nombre no se usa para ninguna otra cifra). Celdas de la tabla 2×2: "coinciden: ambos entran" · "la regla entra, el decisor no" · "el decisor entra, la regla no" · "coinciden: ninguno entra" (T-12). Rechazadas por regla con el nombre corto de la regla, igual que en la tabla de reglas de S3 ("R4 exposición: 1"). Vistas de S4: Cartera · Decisor frente a regla; de S5: Ciclo · Decisor. Periodo: "Desde la activación" (por defecto) · 7 días · 30 días. Tasa de aciertos "57.1 %, 4 de 7"; con 0 casos, "—" y "0 entradas cerradas", nunca "0 %". Sin decisor: "La comparación empieza cuando se activa el decisor". Ciclo apagado: "Sin serie de la regla: el ciclo está apagado desde DD nov HH:MM (UTC−6)".
+- **Alertas y severidad:** ver [[#Banda de estado (componente insignia)]] y la regla "La severidad sigue al modo" en [[#Named Rules]].
+
 ## Do's and Don'ts
 
 ### Do:
 
 - Escribir el estado con el vocabulario fijo de la spec, palabra por palabra.
 - Mostrar la hora absoluta con zona y la relativa juntas en la banda.
-- Poner la investigación después de la regla y del riesgo, siempre con su rótulo.
+- Poner la investigación después de la regla y del riesgo, siempre con su rótulo. En el decisor, dentro de "Contexto que vio el decisor", al final.
+- Escribir "hipotético" junto a toda cifra hipotética.
 
 ### Don't:
 

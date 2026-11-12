@@ -212,14 +212,14 @@ function Coincidencia({ c }: { c: Comparacion["coincidencia"] }) {
                 <span className="block text-xs font-normal text-muted">hipotético</span>
               </th>
               {celda(c.senalCompro, "coinciden: ambos entran")}
-              {celda(c.senalNoCompro, "entradas evitadas por el decisor")}
+              {celda(c.senalNoCompro, "la regla entra, el decisor no")}
             </tr>
             <tr className="border-t border-line">
               <th scope="row" className="px-2 py-3 text-left align-top font-semibold">
                 La regla no dio señal ({sinSenal})
                 <span className="block text-xs font-normal text-muted">hipotético</span>
               </th>
-              {celda(c.sinSenalCompro, "entradas solo del decisor")}
+              {celda(c.sinSenalCompro, "el decisor entra, la regla no")}
               {celda(c.sinSenalNoCompro, "coinciden: ninguno entra")}
             </tr>
           </tbody>

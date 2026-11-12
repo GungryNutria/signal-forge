@@ -3,9 +3,10 @@ import { ACTIVOS } from "@/core/activos";
 import { listarRanuras } from "@/server/consultas/decisor";
 import type { Activo, EstadoRanura, FilaRanura, PorcentajeRanuras, ResultadoDecisorActivo } from "@/server/consultas/tipos";
 import { conHora, estado } from "../_lib/datos";
-import { hora, NOMBRE_MODO, pct, rangoRanura } from "../_lib/formato";
+import { hora, motivoDecision, NOMBRE_MODO, pct, rangoRanura } from "../_lib/formato";
 import { consulta, ESTADOS_RANURA, leerRanuras, RESULTADOS_RANURA, type Params } from "../_lib/params";
 import { BloqueConError } from "./bloque";
+import { Chip } from "./chip";
 import { ChipRanura, ChipResultadoDecisor, textoResultadoDecisor } from "./estados";
 import { GrupoChips, GrupoSelect, Paginacion } from "./filtros";
 import { Tarjeta, Vacio } from "./tarjeta";
@@ -13,7 +14,7 @@ import { Tarjeta, Vacio } from "./tarjeta";
 const TEXTO_ESTADO: Record<EstadoRanura, string> = { completa: "Completa", parcial: "Parcial", invalida: "Inválida", sin_llegar: "Sin llegar", apagado: "Apagado" };
 const TEXTO_RESULTADO: Record<ResultadoDecisorActivo["tipo"], string> = {
   comprar: "Comprar",
-  comprar_rechazada: "Comprar sin datos",
+  comprar_rechazada: "Comprar: Rechazada (Datos no disponibles)",
   no_comprar: "No comprar",
   invalida: "Inválida",
   sin_decision: "Sin decisión",
@@ -42,6 +43,27 @@ function Resultado({ r, activo, ranura, sufijo }: { r: ResultadoDecisorActivo; a
     >
       {chip}
     </Link>
+  );
+}
+
+/** Un envío inválido que no trae activo no cabe en ningún activo de la ranura; se lista aparte para poder abrirlo (AC-UX-12). */
+function SinActivo({ f, sufijo }: { f: FilaRanura; sufijo: string }) {
+  if (f.sinActivo.length === 0) return null;
+  return (
+    <>
+      {f.sinActivo.map((e) => (
+        <span key={e.decisionId} className="flex flex-wrap items-center gap-x-2 text-xs">
+          <span className="text-muted">Envío inválido sin activo</span>
+          <Link
+            href={`/ejecuciones/decisiones/${e.decisionId}?${sufijo}`}
+            aria-label={`Envío inválido sin activo, ranura de las ${hora(f.ranura)}: ${motivoDecision(e.motivo)}. Ver detalle`}
+            className="inline-flex min-h-11 items-center md:min-h-10"
+          >
+            <Chip tono="warn">Inválida ({motivoDecision(e.motivo)})</Chip>
+          </Link>
+        </span>
+      ))}
+    </>
   );
 }
 
@@ -143,6 +165,7 @@ function FilaTabla({ f, sufijo }: { f: FilaRanura; sufijo: string }) {
         <td className="px-2 py-1">{rangoRanura(f.ranura, true).replace(/\s\(UTC.*\)$/, "")}</td>
         <td className="px-2 py-1">
           <Estado f={f} />
+          <SinActivo f={f} sufijo={sufijo} />
         </td>
         <td className="px-2 py-1">{f.modo ? NOMBRE_MODO[f.modo] : "—"}</td>
         <td className="px-2 py-1 font-mono text-[13px]">{f.versionInstrucciones ?? "—"}</td>
@@ -231,6 +254,7 @@ async function Tabla({
                           <Resultado r={f.porActivo[a]} activo={a} ranura={f.ranura} sufijo={sufijo} />
                         </div>
                       ))}
+                  <SinActivo f={f} sufijo={sufijo} />
                 </li>
               ))}
             </ul>

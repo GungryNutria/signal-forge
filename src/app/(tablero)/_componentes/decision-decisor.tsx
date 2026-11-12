@@ -24,7 +24,7 @@ export function DecisionDelDecisor({ d, sistema = "Reglas de riesgo" }: { d: Dec
           <Mono>{d.versionInstrucciones ?? "—"}</Mono>
         </Dato>
         <Dato etiqueta="Modo">{d.modoEfectivo ? NOMBRE_MODO[d.modoEfectivo] : "—"}</Dato>
-        <Dato etiqueta="Ranura (UTC−6)">{rangoRanura(d.ranura, true)}</Dato>
+        <Dato etiqueta="Ranura">{rangoRanura(d.ranura, true)}</Dato>
         <Dato etiqueta="Ejecución del decisor">
           <Mono>{d.ejecucionDecisor ?? "—"}</Mono>
         </Dato>
