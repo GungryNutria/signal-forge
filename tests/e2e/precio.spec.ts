@@ -182,12 +182,16 @@ const lista = async (page: Page) => {
   await expect(page.locator("svg[data-capa]")).toBeVisible();
 };
 const centro = async (l: Locator) => {
-  // Centrada: la banda de escritorio es fija y taparía el marcador si queda arriba.
-  await l.page().locator("[data-grafica]").evaluate((e) => {
+  // El marcador queda en medio del espacio visible bajo la banda de escritorio (que es fija y, con alertas, llega a
+  // ~370 px): alinear la gráfica bajo la banda dejaba marcadores bajos fuera del viewport si las fuentes del CI
+  // alargaban la banda unos píxeles, y el puntero caía fuera de la página.
+  const forma = l.locator("path, rect").first();
+  await forma.evaluate((e) => {
     const banda = document.querySelector("[aria-label='Modo de trading']")?.closest(".sticky")?.getBoundingClientRect().bottom ?? 0;
-    window.scrollBy(0, e.getBoundingClientRect().top - banda - 8);
+    const r = e.getBoundingClientRect();
+    window.scrollBy(0, r.top + r.height / 2 - (banda + window.innerHeight) / 2);
   });
-  const b = (await l.locator("path, rect").first().boundingBox())!;
+  const b = (await forma.boundingBox())!;
   return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
 };
 const marcador = (page: Page, prefijo: "e" | "s") => page.locator(`[data-marcador^='${prefijo}:']`);
