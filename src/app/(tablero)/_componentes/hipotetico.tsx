@@ -44,7 +44,7 @@ export function ResultadoHipotetico({ h, origen }: { h: HipoteticoVista; origen:
             <>
               <Dato etiqueta="Tocó el nivel (Torreón)">{momento(h.tocadoEn)}</Dato>
               <Dato etiqueta="PnL a nivel (hipotético)">
-                {usdConSigno(h.pnlANivelUsd)} · {pct(h.pnlANivelPct, 2)}
+                {usdConSigno(h.pnlANivelUsd)} · {pct(Number(h.pnlANivelPct) * 100, 2)}
                 <span className="block text-xs text-muted">hipotético, a nivel de stop loss o take profit, sin comisiones</span>
               </Dato>
             </>

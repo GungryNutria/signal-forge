@@ -596,7 +596,9 @@ async function decisionSembrada(
       motivo: o.caso === "invalida" ? "decision_invalida" : "contexto_vencido",
       motivos:
         o.caso === "invalida"
-          ? [{ campo: "confianza", motivo: "Too big: expected number to be <=1" }]
+          ? o.cuerpoCrudo && !o.cuerpoCrudo.includes('"confianza"')
+            ? [{ campo: "activo", motivo: "Invalid input: expected string, received undefined" }]
+            : [{ campo: "confianza", motivo: "Too big: expected number to be <=1" }]
           : [{ campo: "contexto_id", motivo: "contexto de hace 16 min, máximo 15" }],
       ...(o.caso === "invalida"
         ? {}
@@ -701,8 +703,13 @@ async function ranuraSembrada(
       });
       if (caso !== "invalida" && caso !== "contexto_vencido") detalle[a] = d.id;
     }
+    // Un contexto vencido se armó 16 min antes de recibirse la decisión, como dice su motivo.
+    const recibidaExtra = new Date(recibida.getTime() + MIN);
+    const contextoVencido = (o.extras ?? []).some((x) => x.caso === "contexto_vencido")
+      ? await contextoSembrado(s, { creadoEn: new Date(recibidaExtra.getTime() - 16 * MIN) })
+      : null;
     for (const x of o.extras ?? []) {
-      await decisionSembrada(s, { activo: x.activo, caso: x.caso, contextoId, recibida: new Date(recibida.getTime() + MIN), cuerpoCrudo: o.cuerpoCrudo, modo: o.modo });
+      await decisionSembrada(s, { activo: x.activo, caso: x.caso, contextoId: x.caso === "contexto_vencido" ? contextoVencido! : contextoId, recibida: recibidaExtra, cuerpoCrudo: o.cuerpoCrudo, modo: o.modo });
     }
   }
   if (k === 0) return;
@@ -1498,7 +1505,7 @@ export const ESCENARIOS: Record<string, Escenario> = {
       extra: { hip?: { r: "take_profit" | "stop_loss" | "sin_precio_entrada"; tocadoHace?: number }; cierre?: Parameters<typeof operacion>[1]["cierre"] } = {},
     ) => {
       const recibida = hace(s, min);
-      const creadoEn = new Date(recibida.getTime() - 3 * MIN);
+      const creadoEn = new Date(recibida.getTime() - (caso === "contexto_vencido" ? 16 : 3) * MIN);
       const contextoId = await contextoSembrado(s, { creadoEn, sinDatos: caso === "comprar_sin_datos" || extra.hip?.r === "sin_precio_entrada" ? [activo] : [] });
       const d = await decisionSembrada(s, { activo, caso, contextoId, recibida, cierre: extra.cierre });
       if (extra.hip) await hipotetico(s, { decisionId: d.id, activo, t0: creadoEn, resultado: extra.hip.r, tocadoHace: extra.hip.tocadoHace });

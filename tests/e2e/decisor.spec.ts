@@ -311,6 +311,8 @@ for (const m of MEDIDAS) {
         await expect(lista).toContainText(/Confianza 0\.72 · Tendencia al alza/);
         await lista.getByRole("link", { name: /Ver detalle/ }).click();
         await expect(page.getByRole("heading", { level: 2, name: "Resultado hipotético" })).toBeVisible();
+        // B-4: la fracción guardada (0.0348) se muestra como porcentaje, no como "+0.03 %".
+        expect(sinNbsp(await page.getByText("PnL a nivel (hipotético)").locator("xpath=..").innerText())).toContain("+3.48 %");
         await expect(page.getByRole("heading", { level: 2, name: "Decisión del decisor" })).toBeVisible();
         await expect(page.getByText("Razonamiento del decisor (texto del agente, literal)")).toBeVisible();
         await page.locator("main").getByRole("link", { name: "Métricas" }).click();
