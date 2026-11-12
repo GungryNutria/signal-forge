@@ -97,6 +97,59 @@ curl -sS -X POST http://127.0.0.1:3000/api/v1/investigaciones \
 
 Responde `201` con `{"id","estado":"aceptada","recibida_en"}`; repetirlo da `200` con el mismo cuerpo.
 
+## Tarea programada de Claude (decisor)
+
+El decisor corre como tarea programada en claude.ai y, una vez por hora, pide un contexto a `POST /api/v1/decisor/contextos` y envía una decisión (`comprar` o `no_comprar`) por activo a `POST /api/v1/decisor/decisiones`. No tiene llaves del broker ni acceso a la base: su única vía es esa API con su propio token (`sfd_...`). Un `comprar` lo convierte el servidor en una propuesta de tamaño y salidas fijos que pasa por todas las reglas de riesgo. Las instrucciones que sigue están en [`decisor/instrucciones-v1.md`](decisor/instrucciones-v1.md) (versión `decisor-v1`). Las pone en marcha Edgardo con el `backend` (spec 004, T-14).
+
+### 1. Generar el token
+
+```bash
+node scripts/generar-token.mjs --decisor
+```
+
+Imprime el token (`sfd_...`) y su SHA-256. El hash va como variable `DECISOR_TOKEN_SHA256` en Coolify (y se redespliega); el token en claro solo va en el paso 3. Revocar = cambiar el hash en Coolify y redesplegar. Sin `--decisor`, el script genera el del investigador (`sfi_...`); cada token solo sirve en las rutas de su rol (el del otro recibe `403`).
+
+### 2. Entorno en claude.ai
+
+1. Crea un entorno nuevo, `signalforge-decisor`, con acceso a red **Limited** y como único host permitido `signalforge.mejsoftware.com`. El decisor no busca en la web.
+2. Sin variables de entorno y sin otros secretos.
+
+### 3. Network secret
+
+En ese entorno agrega un *network secret* de tipo Bearer para el host `signalforge.mejsoftware.com` con el token del paso 1. El proxy de Anthropic añade la cabecera `Authorization` fuera de la VM, por eso las instrucciones no la llevan.
+
+### 4. Tarea programada
+
+1. Repositorio: `GungryNutria/signal-forge`.
+2. Entorno: `signalforge-decisor`.
+3. **Quita todos los conectores.** Por defecto se incluyen todos los que tengas conectados; la tarea no necesita ninguno.
+4. Prompt (mínimo): `Lee decisor/instrucciones-v1.md y síguelo.`
+5. Modelo: Haiku (decisión D-7 de la spec 004; se sube a Sonnet solo si los razonamientos salen flojos y la cuota lo permite). TODO: Verify el nombre exacto del modelo en la interfaz de rutinas.
+6. Programación: cron `45 * * * *` en **UTC** (minuto 45 de cada hora, que es el inicio de cada ranura del decisor). La interfaz solo ofrece "Hourly" sin minuto: como con el investigador, el minuto se ajusta por API.
+
+### 5. Versión de las instrucciones
+
+Cada decisión lleva `version_instrucciones = "decisor-v1@<id del modelo>"`. El modelo se declara solo (lo toma de su información de sistema), así que cambiar el modelo en la interfaz cambia la versión sin tocar el archivo. Regla: si cambias `decisor/instrucciones-v1.md` de forma que cambie el comportamiento, crea `decisor/instrucciones-v2.md` (versión `decisor-v2`) y actualiza el prompt de la tarea; un cambio solo de redacción no sube la versión. El servidor acepta `^decisor-v\d+@[A-Za-z0-9._\-]{1,48}$`. En la primera corrida comprueba qué id de modelo se guardó.
+
+### 6. Verificación
+
+- Revisa que la configuración solo tenga el network secret y ningún conector (captura sin secretos).
+- Primero, con el decisor en `MODO_DECISOR=solo_registra`, haz una corrida manual: debe dar `201` en los dos activos y ninguna orden.
+- Tras la corrida, `select activo, decision, estado, modo_efectivo, version_instrucciones, recibida_en from decisiones order by recibida_en desc` debe mostrar BTC/USD y SOL/USD con `aceptada` y la versión esperada.
+- Vigila la cuota en `claude.ai/settings/usage` durante las primeras 48 h (24 corridas al día) y las corridas Failed o Cancelled del historial de la tarea.
+
+### Probar la API del decisor a mano
+
+Con la app corriendo (`npm run dev` o `npm run build && npm run start`, con las variables de `.env.example`, `DECISOR_TOKEN_SHA256` con el hash del token generado y `MODO_DECISOR=solo_registra`):
+
+```bash
+TOKEN=sfd_...   # el token generado; no lo guardes en el repo
+curl -sS -X POST http://127.0.0.1:3000/api/v1/decisor/contextos \
+  -H "Authorization: Bearer $TOKEN" -o /tmp/ctx.json -w '%{http_code}\n'
+```
+
+Responde `201` con el contexto (`contexto-v1`, con su `id`). Para enviar una decisión, usa ese `id` como `contexto_id` en el cuerpo que describe `decisor/instrucciones-v1.md` y envíalo a `/api/v1/decisor/decisiones` con la misma cabecera `Authorization`.
+
 ## Dataset y datos de prueba
 
 - **Dataset (REQ-26):** `node dist/dataset.mjs [--activo BTC/USD]` escribe en stdout una línea JSON por evaluación del ciclo (la vista `v_dataset`). Solo hace `SELECT` y solo necesita `DATABASE_URL`.
