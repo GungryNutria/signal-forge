@@ -20,7 +20,7 @@ import {
   valorRegla,
 } from "../_lib/formato";
 import { esActivo } from "@/core/activos";
-import { paramV, vienedeEjecuciones, vienedePrecio, volverAEjecuciones, volverAPrecio, volverAPropuestas, type Params } from "../_lib/params";
+import { paramV, vienedeEjecuciones, vienedeMetricas, vienedePrecio, volverAEjecuciones, volverAMetricas, volverAPrecio, volverAPropuestas, type Params } from "../_lib/params";
 import { hrefPrecio, rangoQueIncluye } from "../_lib/precio";
 import { Alerta } from "./alerta";
 import { Barra, Cargando } from "./esqueleto";
@@ -370,6 +370,7 @@ export async function DetallePropuestaVista({ params, searchParams }: { params: 
   const v = paramV(sp);
   const deEjecuciones = vienedeEjecuciones(sp);
   const dePrecio = vienedePrecio(sp);
+  const deMetricas = vienedeMetricas(sp);
   const { ahora, datos: d } = await conHora(() => detallePropuesta(id))();
   if (d === null) notFound();
 
@@ -377,8 +378,16 @@ export async function DetallePropuestaVista({ params, searchParams }: { params: 
   return (
     <div className="flex flex-col gap-6">
       <Volver
-        href={dePrecio ? `/precio${volverAPrecio(v)}` : deEjecuciones ? `/ejecuciones${volverAEjecuciones(v)}` : `/propuestas${volverAPropuestas(v)}`}
-        texto={dePrecio ? "Precio" : deEjecuciones ? "Ejecuciones" : "Propuestas"}
+        href={
+          dePrecio
+            ? `/precio${volverAPrecio(v)}`
+            : deMetricas
+              ? `/metricas${volverAMetricas(v)}`
+              : deEjecuciones
+                ? `/ejecuciones${volverAEjecuciones(v)}`
+                : `/propuestas${volverAPropuestas(v)}`
+        }
+        texto={dePrecio ? "Precio" : deMetricas ? "Métricas" : deEjecuciones ? "Ejecuciones" : "Propuestas"}
       />
       <Cabecera d={d} ahora={ahora} />
       {d.decisor ? (

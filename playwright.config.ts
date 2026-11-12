@@ -54,5 +54,7 @@ export default defineConfig({
     iniciar(PUERTOS.decisorSinR11, { MODO_CICLO: "solo_registra", MODO_DECISOR: "ejecuta", MAX_ENTRADAS_ABIERTAS_POR_ACTIVO: "0" }),
     iniciar(PUERTOS.cicloSoloRegistra, { MODO_CICLO: "solo_registra" }),
     iniciar(PUERTOS.modosInvalidos, { MODO_CICLO: "desconocido" }),
+    iniciar(PUERTOS.fallaComparacion, { MODO_CICLO: "solo_registra", MODO_DECISOR: "ejecuta", SF_FALLA_INYECTADA: "comparacion" }),
+    iniciar(PUERTOS.fallaRanuras, { MODO_CICLO: "solo_registra", MODO_DECISOR: "ejecuta", SF_FALLA_INYECTADA: "listarRanuras" }),
   ],
 });

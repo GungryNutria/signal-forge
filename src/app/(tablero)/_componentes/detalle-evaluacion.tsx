@@ -6,6 +6,7 @@ import { horaConSegundos, momento, momentoUtc } from "../_lib/formato";
 import { paramV, volverAEjecuciones, type Params } from "../_lib/params";
 import { Volver } from "./detalle-propuesta";
 import { ChipDecision, ChipResultado } from "./estados";
+import { ResultadoHipotetico } from "./hipotetico";
 import { InvestigacionAdjunta } from "./investigacion-adjunta";
 import { leerResultado, ReglaEntrada } from "./regla-entrada";
 
@@ -60,6 +61,7 @@ export async function DetalleEvaluacionVista({
         sinDatos={`La regla no se pudo evaluar${d.evaluacion.errorDetalle ? `: ${d.evaluacion.errorDetalle}` : "."}`}
       />
       <InvestigacionAdjunta activo={nombre} inv={d.investigacion} />
+      {d.hipotetico ? <ResultadoHipotetico h={d.hipotetico} origen="senal" /> : null}
     </div>
   );
 }

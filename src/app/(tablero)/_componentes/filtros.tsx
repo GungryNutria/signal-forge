@@ -6,7 +6,7 @@ import { SelectEnvio } from "./select-envio";
 // el cursor (cambiar un filtro vuelve a la primera página). Sin server actions ni fetch del navegador.
 type Opcion = { valor: string; texto: string };
 
-const limpiar = (otros: Record<string, string | undefined>) => Object.entries(otros).filter(([k, v]) => v && k !== "cursor");
+const limpiar = (otros: Record<string, string | undefined>) => Object.entries(otros).filter(([k, v]) => v && !k.startsWith("cursor"));
 
 function Ocultos({ otros }: { otros: Record<string, string | undefined> }) {
   return limpiar(otros).map(([k, v]) => <input key={k} type="hidden" name={k} value={v} />);
@@ -95,6 +95,8 @@ export function Paginacion({
   siguiente,
   mostrando,
   total,
+  clave = "cursor",
+  nombre = "Paginación",
 }: {
   base: string;
   valores: Record<string, string | undefined>;
@@ -102,11 +104,14 @@ export function Paginacion({
   siguiente: string | null;
   mostrando: number;
   total: number;
+  /** Parámetro del cursor; la comparación tiene dos listas, cada una con el suyo. */
+  clave?: string;
+  nombre?: string;
 }) {
   const clase = "inline-flex min-h-11 items-center justify-center rounded-sm border px-3 text-sm font-semibold whitespace-nowrap md:px-4";
-  const ir = (cursor: string) => `${base}${consulta({ ...valores, cursor })}`;
+  const ir = (cursor: string) => `${base}${consulta({ ...valores, [clave]: cursor })}`;
   return (
-    <nav aria-label="Paginación" className="mt-4 flex items-center justify-between gap-3">
+    <nav aria-label={nombre} className="mt-4 flex items-center justify-between gap-3">
       {anterior ? (
         <Link href={ir(anterior)} className={`${clase} border-strong text-accent`} rel="prev">
           ‹ Más recientes

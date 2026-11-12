@@ -5,12 +5,14 @@ import { listarEjecuciones } from "@/server/consultas/ejecuciones";
 import type { Activo, FilaEjecucion } from "@/server/consultas/tipos";
 import { conHora } from "../_lib/datos";
 import { diaYHora, hora, horaConSegundos } from "../_lib/formato";
-import { consulta, leerEjecuciones, RESULTADOS, type Params } from "../_lib/params";
+import { consulta, esVistaDecisor, leerEjecuciones, RESULTADOS, type Params } from "../_lib/params";
 import { BloqueConError } from "./bloque";
 import { Barra, Cargando } from "./esqueleto";
 import { ChipOmitida, ChipResultado, esOmitida, textoResultado } from "./estados";
 import { GrupoChips, GrupoSelect, Paginacion } from "./filtros";
+import { ContenidoRanuras } from "./ranuras-vista";
 import { Tarjeta, Vacio } from "./tarjeta";
+import { Vistas } from "./vistas";
 
 const TEXTO_RESULTADO = {
   sin_senal: "Sin señal",
@@ -66,11 +68,35 @@ async function Vacia({ filtrado }: { filtrado: boolean }) {
 }
 
 export async function ContenidoEjecuciones({ searchParams }: { searchParams: Promise<Params> }) {
-  const { filtro, valores } = leerEjecuciones(await searchParams);
+  const sp = await searchParams;
+  const decisor = esVistaDecisor(sp);
+  const { filtro, valores } = leerEjecuciones(sp);
   const filtrado = Boolean(valores.activo || valores.resultado);
   const otros = (sin: string) => ({ ...valores, [sin]: undefined });
+  const vistas = (
+    <div className="mb-4">
+      <Vistas
+        nombre="Vistas de Ejecuciones"
+        base="/ejecuciones"
+        actual={decisor ? "decisor" : "ciclo"}
+        opciones={[
+          { valor: "ciclo", texto: "Ciclo" },
+          { valor: "decisor", texto: "Decisor" },
+        ]}
+      />
+    </div>
+  );
+  if (decisor) {
+    return (
+      <>
+        {vistas}
+        <ContenidoRanuras searchParams={searchParams} />
+      </>
+    );
+  }
   return (
     <>
+      {vistas}
       <div className="mb-4 flex flex-col gap-4 md:flex-row md:flex-wrap md:items-center md:gap-x-10">
         <GrupoChips
           nombre="activo"

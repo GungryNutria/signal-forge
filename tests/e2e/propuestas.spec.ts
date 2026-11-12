@@ -193,6 +193,7 @@ for (const m of MEDIDAS) {
       expect(await graves(page)).toEqual([]);
       await enlaceFila(page, "BTC/USD").click();
       await expect(page.getByRole("heading", { name: "Ejecución del ciclo" })).toBeVisible();
+      await expect(page).toHaveTitle(/Propuesta/); // el título llega en streaming; axe lo exige (document-title)
       await sinScrollHorizontal(page);
       expect(await graves(page)).toEqual([]);
     });

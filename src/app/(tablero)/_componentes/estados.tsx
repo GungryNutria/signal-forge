@@ -102,6 +102,8 @@ function vistaDecisor(r: ResultadoDecisorActivo): { texto: string; tono: Tono } 
       return { texto: "Sin decisión", tono: "neutro" };
   }
 }
+/** Texto plano del resultado de una ranura, para nombres accesibles. */
+export const textoResultadoDecisor = (r: ResultadoDecisorActivo): string => vistaDecisor(r).texto;
 export function ChipResultadoDecisor({ r }: { r: ResultadoDecisorActivo }) {
   const v = vistaDecisor(r);
   return <Chip tono={v.tono}>{v.texto}</Chip>;

@@ -175,7 +175,7 @@ type FilaLista = {
  * recientes primero y con el mismo periodo de la comparación. Las `comprar` sin datos no son propuestas y no se listan.
  */
 export async function listarEvitadasYRechazadas(
-  f: FiltroComparacion & { tipo?: "evitada" | "rechazada"; hipotetico?: "take_profit" | "stop_loss" | "pendiente"; antes?: string },
+  f: FiltroComparacion & { tipo?: "evitada" | "rechazada"; hipotetico?: "take_profit" | "stop_loss" | "pendiente" | "sin_precio_entrada"; antes?: string },
   ahora: Date,
 ): Promise<Pagina<FilaEvitadaORechazada>> {
   fallaInyectada("comparacion");
