@@ -6,6 +6,7 @@ import {
   type OrdenBroker,
   type PeticionOrden,
   type RespuestaEnvio,
+  type Simbolo,
 } from "./tipos";
 
 export const URL_PAPER = "https://paper-api.alpaca.markets";
@@ -20,6 +21,8 @@ const OrdenAlpaca = z.looseObject({
   filled_qty: z.string(),
   filled_avg_price: z.string().nullish(),
 });
+
+const PosicionAlpaca = z.looseObject({ qty_available: z.string() });
 
 const aOrden = (cuerpo: unknown): OrdenBroker | null => {
   const r = OrdenAlpaca.safeParse(cuerpo);
@@ -118,5 +121,16 @@ export class AlpacaBroker implements Broker {
     const orden = aOrden(r.cuerpo);
     if (!orden) throw new ErrorBroker("Respuesta de Alpaca con forma inesperada", "respuesta_invalida", r.status);
     return orden;
+  }
+
+  async cantidadDisponible(simbolo: Simbolo): Promise<string> {
+    const url = `${this.baseUrl}/v2/positions/${simbolo.replace("/", "")}`;
+    const r = await pedir(this.fetchFn, url, { method: "GET", headers: this.cabeceras }, this.timeoutMs);
+    if (r.status === 404) return "0";
+    if (r.status >= 500) throw new ErrorBroker(`Alpaca respondió ${r.status}`, "5xx", r.status);
+    if (r.status >= 400) throw new ErrorBroker(`Alpaca respondió ${r.status}`, "4xx", r.status);
+    const p = PosicionAlpaca.safeParse(r.cuerpo);
+    if (!p.success) throw new ErrorBroker("Respuesta de Alpaca con forma inesperada", "respuesta_invalida", r.status);
+    return p.data.qty_available;
   }
 }

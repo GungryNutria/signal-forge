@@ -358,6 +358,7 @@ async function evaluarActivo(p: ParamsActivo): Promise<ResultadoCiclo["evaluacio
 const brokerProhibido: Broker = {
   enviarOrden: () => Promise.reject(new Error("broker no disponible: APCA_API_BASE_URL no es la de paper")),
   consultarOrden: () => Promise.reject(new Error("broker no disponible: APCA_API_BASE_URL no es la de paper")),
+  cantidadDisponible: () => Promise.reject(new Error("broker no disponible: APCA_API_BASE_URL no es la de paper")),
 };
 
 async function main() {

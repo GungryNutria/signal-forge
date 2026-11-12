@@ -96,7 +96,7 @@ async function correr(
     await reconciliar(deps, db, cuenta, log, () => abortado);
     r.reconciliadas = cuenta.reconciliadas;
     const ventas = { ventas: 0, cierres: 0 };
-    if (!abortado) await proteger(deps, db, ventas, log, () => abortado);
+    if (!abortado) await proteger(deps, db, ventas, log, () => abortado, falla);
     r.ventas = ventas.ventas;
     r.cierres = cuenta.cierres + ventas.cierres;
     // REQ-31: si el PnL del día llegó a -3 %, deja el evento (las protecciones siguen funcionando).
@@ -252,6 +252,7 @@ async function proteger(
   cuenta: { ventas: number; cierres: number },
   log: (l: Record<string, unknown>) => void,
   abortado: () => boolean,
+  falla: (e: unknown) => Promise<void>,
 ) {
   const abiertos = await filas<Lote & { n_salidas: string }>(
     db,
@@ -279,11 +280,27 @@ async function proteger(
     const motivo: MotivoCierre | null = bid <= Number(l.stop_loss) ? "stop_loss" : bid >= Number(l.take_profit) ? "take_profit" : null;
     if (!motivo) continue;
 
+    // Nunca se pide más de lo que el broker deja vender: su comisión en especie puede superar la del modelo y,
+    // en el último lote del activo, la posición no tiene holgura. Sin lectura o sin saldo no se crea la orden.
+    let cantidad = l.cantidad_neta;
+    try {
+      const disponible = await deps.broker.cantidadDisponible(l.activo as Activo);
+      if (!(Number(disponible) > 0)) {
+        log({ evento: "venta_sin_saldo", lote: l.id, motivo, disponible });
+        continue;
+      }
+      if (Number(disponible) < Number(cantidad)) cantidad = disponible;
+    } catch (e) {
+      if (!(e instanceof ErrorBroker)) throw e;
+      await falla(new Error(`no se pudo leer la cantidad disponible de ${l.activo} (lote ${l.id}): ${e.message}`));
+      continue;
+    }
+
     const clientOrderId = `sf-x-${l.id.replaceAll("-", "")}-${Number(l.n_salidas) + 1}`;
     const [orden] = await db.transaction(async (tx) => {
       const o = await tx
         .insert(ordenes)
-        .values({ loteId: l.id, tramo: "salida", clientOrderId, activo: l.activo, lado: "sell", cantidad: l.cantidad_neta, creadaEn: ahora, precioDisparo: String(bid), precioDisparoTs: p.fuente_ts ? new Date(p.fuente_ts) : null })
+        .values({ loteId: l.id, tramo: "salida", clientOrderId, activo: l.activo, lado: "sell", cantidad, creadaEn: ahora, precioDisparo: String(bid), precioDisparoTs: p.fuente_ts ? new Date(p.fuente_ts) : null })
         .returning({ id: ordenes.id });
       await tx.insert(eventosOrden).values({ ordenId: o[0].id, momento: ahora, estado: "pendiente_envio", detalle: motivo });
       return o;
@@ -292,12 +309,16 @@ async function proteger(
     log({ evento: "venta", lote: l.id, motivo, bid });
 
     const o: Orden = { id: orden.id, tramo: "salida", client_order_id: clientOrderId, activo: l.activo, lote_id: l.id, creada_en: ahora, estado: "pendiente_envio" };
-    const e = await deps.broker.enviarOrden({ clientOrderId, simbolo: l.activo as Activo, lado: "sell", cantidad: l.cantidad_neta });
+    const e = await deps.broker.enviarOrden({ clientOrderId, simbolo: l.activo as Activo, lado: "sell", cantidad });
     const evento = (x: Partial<typeof eventosOrden.$inferInsert> & Pick<typeof eventosOrden.$inferInsert, "estado">) =>
       db.insert(eventosOrden).values({ ordenId: o.id, momento: deps.ahora(), ...x });
     if (e.tipo === "incierta") await evento({ estado: "desconocido", detalle: e.causa });
-    else if (e.tipo === "rechazada") await evento({ estado: "rechazada", respuesta: { status: e.status, cuerpo: e.cuerpo }, detalle: `HTTP ${e.status}` });
-    else {
+    else if (e.tipo === "rechazada") {
+      await evento({ estado: "rechazada", respuesta: { status: e.status, cuerpo: e.cuerpo }, detalle: `HTTP ${e.status}` });
+      // 'rechazada' no es viva: se reintenta cada vuelta, así que no puede pasar en silencio.
+      const mensaje = (e.cuerpo as { message?: unknown } | null)?.message;
+      await falla(new Error(`salida rechazada por el broker (lote ${l.id}): HTTP ${e.status}${typeof mensaje === "string" ? ` ${mensaje}` : ""}`));
+    } else {
       await evento({ estado: "enviada", brokerOrderId: e.orden.id, respuesta: e.orden.raw, cantidadLlenada: e.orden.filledQty, precioMedio: e.orden.filledAvgPrice });
       if (estadoDe(e.orden.status) === "llenada" && (await cerrarSalida(db, { ...o, estado: "enviada" }, e.orden, deps.ahora()))) cuenta.cierres++;
     }
@@ -314,6 +335,7 @@ async function main() {
         : ({
             enviarOrden: () => Promise.reject(new Error("broker no disponible fuera de paper")),
             consultarOrden: () => Promise.reject(new Error("broker no disponible fuera de paper")),
+            cantidadDisponible: () => Promise.reject(new Error("broker no disponible fuera de paper")),
           } satisfies Broker);
     const r = await ejecutarVigilante({
       pool,

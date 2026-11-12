@@ -31,6 +31,8 @@ export interface Broker {
   enviarOrden(o: PeticionOrden): Promise<RespuestaEnvio>;
   /** `"no_existe"` solo si el broker contesta 404. Cualquier otro fallo lanza `ErrorBroker`. */
   consultarOrden(clientOrderId: string): Promise<OrdenBroker | "no_existe">;
+  /** Cantidad del activo que el broker deja vender ahora (`qty_available`), en decimal como cadena. `"0"` si contesta 404 (sin posición). Otro fallo lanza `ErrorBroker`. */
+  cantidadDisponible(simbolo: Simbolo): Promise<string>;
 }
 
 export type Barra = { t: string; o: number; h: number; l: number; c: number; v: number };

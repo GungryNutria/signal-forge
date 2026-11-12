@@ -142,6 +142,27 @@ describe("AlpacaBroker.enviarOrden", () => {
   });
 });
 
+describe("AlpacaBroker.cantidadDisponible", () => {
+  it("200: qty_available de la posición, con el símbolo sin barra en la URL", async () => {
+    const { b, llamadas } = broker(() => json(200, { symbol: "BTCUSD", qty: "0.006641816", qty_available: "0.006641815" }));
+    expect(await b.cantidadDisponible("BTC/USD")).toBe("0.006641815");
+    expect(llamadas[0].url).toBe(`${URL_PAPER}/v2/positions/BTCUSD`);
+    expect(llamadas[0].init.method).toBe("GET");
+  });
+
+  it("404 (sin posición) = 0", async () => {
+    const { b } = broker(() => json(404, { code: 40410000, message: "position does not exist" }));
+    expect(await b.cantidadDisponible("SOL/USD")).toBe("0");
+  });
+
+  it("5xx, 4xx distinto de 404 y forma inválida lanzan ErrorBroker con su causa", async () => {
+    const causa = async (responder: Parameters<typeof broker>[0]) => broker(responder).b.cantidadDisponible("BTC/USD").catch((e: ErrorBroker) => e.causa);
+    expect(await causa(() => json(502, {}))).toBe("5xx");
+    expect(await causa(() => json(401, {}))).toBe("4xx");
+    expect(await causa(() => json(200, { hola: 1 }))).toBe("respuesta_invalida");
+  });
+});
+
 describe("AlpacaBroker.consultarOrden", () => {
   it("200: la orden", async () => {
     const { b } = broker(() => json(200, ordenJson({ status: "filled", filled_qty: "0.000129377", filled_avg_price: "75791.33" })));
