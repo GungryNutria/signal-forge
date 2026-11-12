@@ -3,7 +3,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import type { PuntoPrecio, SeriePrecio } from "@/server/consultas/tipos";
-import { cripto, enUtc, hora, horaCorta, pct, signo, unidad, usd, usdConSigno, zona } from "../_lib/formato";
+import { confianza, cripto, enUtc, hora, horaCorta, NOMBRE_PROPONENTE, pct, signo, unidad, usd, usdConSigno, zona } from "../_lib/formato";
 import { distanciaANiveles, duracionTexto, hrefOperacion, type Marca } from "../_lib/precio";
 import { Chip } from "./chip";
 import { ChipOperacion } from "./estados";
@@ -98,6 +98,7 @@ function DeMarca({ m, serie, ultimo, ahora }: { m: Marca; serie: SeriePrecio; ul
     return (
       <>
         {cabeza}
+        <p className="text-sm">Proponente: {NOMBRE_PROPONENTE[e.proponente]}</p>
         <Filas>
           <Fila t="Hora">
             {hora(e.t)} · {enUtc(e.t)}
@@ -106,9 +107,16 @@ function DeMarca({ m, serie, ultimo, ahora }: { m: Marca; serie: SeriePrecio; ul
           <Fila t="Tamaño">
             {cripto(e.cantidad, unidad(serie.activo))} · {usd(e.nocionalUsd)}
           </Fila>
-          <Fila t="Cierre">{valor(e.cierre)}</Fila>
-          <Fila t="Cierre anterior">{valor(e.cierrePrevio)}</Fila>
-          <Fila t="SMA20">{valor(e.sma20)}</Fila>
+          {/* REQ-32: la entrada del decisor no trae los valores de la regla; muestra su confianza. */}
+          {e.proponente === "decisor" ? (
+            <Fila t="Confianza">{e.confianza === null ? "—" : confianza(e.confianza)}</Fila>
+          ) : (
+            <>
+              <Fila t="Cierre">{valor(e.cierre)}</Fila>
+              <Fila t="Cierre anterior">{valor(e.cierrePrevio)}</Fila>
+              <Fila t="SMA20">{valor(e.sma20)}</Fila>
+            </>
+          )}
         </Filas>
         {op.niveles ? <Niveles m={m} ultimo={ultimo} /> : null}
         <EnlaceOperacion m={m} serie={serie} />

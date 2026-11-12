@@ -192,3 +192,42 @@ export const momento = (iso: string): string =>
 export const momentoUtc = (iso: string): string => `${quitar(diaHoraSeg.format(new Date(iso)))} UTC`;
 /** `6 nov, 14:30` (hora de Torreón; el encabezado de la columna dice la zona). */
 export const diaYHora = (iso: string): string => `${dia(iso)}, ${horaCorta(iso)}`;
+
+// ───────────────────────────── Decisor (spec 004) ─────────────────────────────
+
+type ModoDe = { efectivo: "ejecuta" | "solo_registra" | "apagado"; motivo: string | null };
+
+export const NOMBRE_MODO = { ejecuta: "Ejecuta", solo_registra: "Solo registra", apagado: "Apagado" } as const;
+export const NOMBRE_PROPONENTE = { ciclo: "Ciclo", decisor: "Decisor" } as const;
+
+/**
+ * Línea de la banda (DESIGN.md, grupo 1): quién ejecuta y el modo del otro. Ninguno ejecuta: los dos modos efectivos;
+ * con la configuración inválida (los dos en Ejecuta), solo "Ejecuta: ninguno".
+ */
+export function lineaDeModos(ciclo: ModoDe, decisor: ModoDe): string {
+  if (ciclo.motivo === "dos_proponentes_en_ejecuta" || decisor.motivo === "dos_proponentes_en_ejecuta") return "Ejecuta: ninguno";
+  if (decisor.efectivo === "ejecuta") return `Ejecuta: Decisor · Ciclo: ${NOMBRE_MODO[ciclo.efectivo]}`;
+  if (ciclo.efectivo === "ejecuta") return `Ejecuta: Ciclo · Decisor: ${NOMBRE_MODO[decisor.efectivo]}`;
+  return `Ejecuta: ninguno · Ciclo: ${NOMBRE_MODO[ciclo.efectivo]} · Decisor: ${NOMBRE_MODO[decisor.efectivo]}`;
+}
+
+/** Motivos del sistema para una decisión sin propuesta, a partir del código guardado. */
+const MOTIVO_DECISION: Record<string, string> = {
+  contexto_vencido: "Contexto vencido",
+  decision_invalida: "Decisión inválida",
+  json_invalido: "Decisión inválida",
+  cuerpo_demasiado_grande: "Decisión inválida",
+  decisor_apagado: "Decisor apagado",
+  configuracion_invalida: "Configuración inválida",
+  datos_no_disponibles: "Datos no disponibles",
+  conflicto_idempotencia: "Conflicto",
+  conflicto_ranura: "Conflicto",
+};
+export const motivoDecision = (m: string): string => MOTIVO_DECISION[m] ?? m;
+
+/** `13:45 a 14:45 (UTC−6)`; con `conDia`, `10 nov, 13:45 a 14:45 (UTC−6)`. La ranura dura una hora desde su inicio. */
+export function rangoRanura(inicioIso: string, conDia = false): string {
+  const fin = new Date(new Date(inicioIso).getTime() + 3_600_000).toISOString();
+  return `${conDia ? `${dia(inicioIso)}, ` : ""}${horaCorta(inicioIso)} a ${hora(fin)}`;
+}
+

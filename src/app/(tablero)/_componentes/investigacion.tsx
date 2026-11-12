@@ -1,23 +1,37 @@
 import { ACTIVOS } from "@/core/activos";
 import { proximaInvestigacion } from "@/core/tiempo";
 import type { InvestigacionVista } from "@/server/consultas/tipos";
-import { investigaciones } from "../_lib/datos";
+import { estado, investigaciones } from "../_lib/datos";
 import { confianza, dominio, hora, relativo, sentimiento } from "../_lib/formato";
 import { Chip } from "./chip";
 import { Barra, Cargando } from "./esqueleto";
 import { IconoCirculo, IconoEnlaceExterno } from "./iconos";
 import { Vacio } from "./tarjeta";
 
-/** Rótulo fijo (AC-UX-25): la investigación nunca es el motivo de una decisión. */
-export function RotuloInformativa() {
+export function Rotulo({ children }: { children: string }) {
   return (
     <p className="mb-4 inline-flex max-w-full items-center gap-2 border-l-[3px] border-info bg-info-bg px-3 py-1 text-sm">
       <span className="text-info">
         <IconoCirculo />
       </span>
-      Informativa: no interviene en la decisión de entrada
+      {children}
     </p>
   );
+}
+
+/** Rótulo fijo (AC-UX-25): la investigación nunca es el motivo de una decisión. */
+export const RotuloInformativa = () => <Rotulo>Informativa: no interviene en la decisión de entrada</Rotulo>;
+
+/**
+ * Rótulo del bloque Investigación de S1 según el modo del decisor (AC-UX-9): con el decisor en Ejecuta o Solo registra la lee al
+ * decidir; apagado, o sin saber el modo, conserva el de 001.
+ */
+export async function RotuloInvestigacion() {
+  const modo = await estado()
+    .then((r) => r.datos.modos?.decisor.efectivo)
+    .catch(() => undefined);
+  if (modo !== "ejecuta" && modo !== "solo_registra") return <RotuloInformativa />;
+  return <Rotulo>La lee el decisor al decidir. La regla fija no la usa</Rotulo>;
 }
 
 export function Fuente({ url }: { url: string }) {

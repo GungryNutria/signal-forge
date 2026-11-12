@@ -16,6 +16,13 @@ export const PUERTOS = {
   fallaSeriePrecio: 3200,
   fallaOperacionesPrecio: 3201,
   tope2: 3202,
+  // Spec 004: un servidor por combinación de MODO_CICLO y MODO_DECISOR (se leen al arrancar).
+  decisorEjecuta: 3203, // ciclo solo registra, decisor ejecuta
+  decisorSoloRegistra: 3204, // ciclo ejecuta, decisor solo registra
+  dosEjecutan: 3205, // configuración inválida (REQ-16)
+  decisorSinR11: 3206, // decisor ejecuta, pero N inválida: opera en solo registra (REQ-17)
+  cicloSoloRegistra: 3207, // ciclo solo registra, decisor apagado
+  modosInvalidos: 3208, // variable de modo con un valor que no existe
 } as const;
 
 export const BASE = process.env.E2E_DATABASE_URL;
@@ -51,6 +58,20 @@ export async function agregarEjecucion(estado: "completada" | "error" | "omitida
         estado === "error" ? "plazo interno de 120 s agotado" : null,
       ]);
     }
+  } finally {
+    await pool.end();
+  }
+}
+
+/** Registra un cambio de modos con el decisor activo desde hace `hace` min (lo que hace el ciclo al arrancar, REQ-33). */
+export async function agregarModos(hace: number) {
+  const pool = new Pool({ connectionString: BASE, max: 1 });
+  try {
+    const modo = { configurado: "ejecuta", efectivo: "ejecuta", motivo: null };
+    await pool.query("INSERT INTO eventos (momento, tipo, detalle) VALUES ($1, 'modo_proponentes', $2)", [
+      new Date(Date.now() - hace * 60_000),
+      JSON.stringify({ ciclo: { ...modo, configurado: "solo_registra", efectivo: "solo_registra" }, decisor: modo }),
+    ]);
   } finally {
     await pool.end();
   }

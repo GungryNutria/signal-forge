@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { BloqueConError } from "./_componentes/bloque";
-import { Investigacion, InvestigacionEsqueleto, RotuloInformativa } from "./_componentes/investigacion";
+import { Investigacion, InvestigacionEsqueleto, RotuloInvestigacion } from "./_componentes/investigacion";
 import { Kpis, KpisEsqueleto } from "./_componentes/kpis";
 import { PosicionesAbiertas, PosicionesEsqueleto } from "./_componentes/posiciones";
 import { Tarjeta, TituloBloque } from "./_componentes/tarjeta";
@@ -39,7 +39,9 @@ export default function Resumen() {
           <TituloBloque id="titulo-investigacion" className="text-info">
             Investigación
           </TituloBloque>
-          <RotuloInformativa />
+          <Suspense fallback={null}>
+            <RotuloInvestigacion />
+          </Suspense>
           <BloqueConError nombre="la investigación">
             <Suspense fallback={<InvestigacionEsqueleto />}>
               <Investigacion />

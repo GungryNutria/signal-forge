@@ -4,7 +4,7 @@ import { ACTIVOS } from "@/core/activos";
 import { proximaEjecucion } from "@/core/tiempo";
 import type { FilaPropuesta, LoteAbierto } from "@/server/consultas/tipos";
 import { cartera, estado, ultimasPropuestas } from "../_lib/datos";
-import { horaCorta, hora, motivo, reglaPrincipal, signo, usdConSigno } from "../_lib/formato";
+import { horaCorta, hora, motivo, NOMBRE_PROPONENTE, reglaPrincipal, signo, usdConSigno } from "../_lib/formato";
 import { Barra, Cargando } from "./esqueleto";
 import { ChipDecision, ChipOperacion, textoResultado } from "./estados";
 import { IconoChevron } from "./iconos";
@@ -103,6 +103,7 @@ export async function UltimasPropuestas() {
           <tr className="bg-sunken text-[13px] font-semibold">
             <th scope="col" className="px-2 py-2 text-left">Hora (UTC−6)</th>
             <th scope="col" className="px-2 py-2 text-left">Activo</th>
+            <th scope="col" className="px-2 py-2 text-left">Proponente</th>
             <th scope="col" className="px-2 py-2 text-left">Decisión</th>
             <th scope="col" className="px-2 py-2 text-left">Estado o motivo</th>
             <th scope="col" className="px-2 py-2 text-right">PnL</th>
@@ -116,6 +117,7 @@ export async function UltimasPropuestas() {
                 <Enlace f={f}>{horaCorta(f.recibidaEn)}</Enlace>
               </td>
               <td className="px-2 py-2 font-semibold">{f.activo ?? "—"}</td>
+              <td className="px-2 py-2">{NOMBRE_PROPONENTE[f.proponente]}</td>
               <td className="px-2 py-2"><ChipDecision decision={f.decision} /></td>
               <td className="px-2 py-2"><EstadoOMotivo f={f} /></td>
               <td className="px-2 py-2 text-right whitespace-nowrap"><Pnl f={f} abiertos={abiertos} /></td>
@@ -134,7 +136,7 @@ export async function UltimasPropuestas() {
                   <Enlace f={f}>
                     <span className="font-semibold">{horaCorta(f.recibidaEn)}</span>
                   </Enlace>{" "}
-                  · <span className="font-semibold">{f.activo ?? "—"}</span>
+                  · <span className="font-semibold">{f.activo ?? "—"}</span> · {NOMBRE_PROPONENTE[f.proponente]}
                 </p>
                 <ChipDecision decision={f.decision} />
               </div>

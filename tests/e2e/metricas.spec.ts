@@ -109,6 +109,8 @@ for (const m of MEDIDAS) {
       await expect(page.getByRole("table", { name: "Saldo tras cada cierre" }).getByRole("row")).toHaveCount(7);
       await expect(page.getByRole("table", { name: "PnL de cada día UTC" }).getByRole("row")).toHaveCount(3);
       if (m.ancho >= 768) {
+        // La banda de escritorio es fija: se centra la gráfica para que el puntero no caiga bajo ella.
+        await page.getByRole("group", { name: "Curva de saldo realizado de la cartera global" }).evaluate((e) => e.scrollIntoView({ block: "center" }));
         const caja = await page.getByRole("group", { name: "Curva de saldo realizado de la cartera global" }).boundingBox();
         await page.mouse.move(caja!.x + caja!.width * 0.6, caja!.y + caja!.height * 0.5);
         await expect(page.getByRole("status").filter({ hasText: /Saldo [\d,]+\.\d{2} USD/ })).toBeVisible();

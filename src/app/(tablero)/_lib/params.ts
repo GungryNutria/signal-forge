@@ -4,6 +4,7 @@ import type {
   EstadoOperacion,
   FiltroEjecuciones,
   FiltroPropuestas,
+  Proponente,
   ResultadoFiltroEjecuciones,
 } from "@/server/consultas/tipos";
 import { consultaDePrecio } from "./precio";
@@ -12,6 +13,7 @@ import { consultaDePrecio } from "./precio";
 // Solo tipos de la consulta (sin `server-only`).
 export type Params = Record<string, string | string[] | undefined>;
 
+export const PROPONENTES: readonly Proponente[] = ["ciclo", "decisor"];
 export const DECISIONES: readonly Decision[] = ["ejecutada", "rechazada", "conflicto", "error"];
 export const ESTADOS: readonly EstadoOperacion[] = [
   "pendiente_llenado",
@@ -36,9 +38,10 @@ const uno = (p: Params, k: string): string | undefined => {
 const en = <T extends string>(lista: readonly T[], v: string | undefined): T | undefined => lista.find((x) => x === v);
 const cursorValido = (v: string | undefined) => (v && /^[ad]:[0-9a-f-]{36}$/i.test(v) ? v : undefined);
 
-export type ValoresPropuestas = { activo?: Activo; decision?: Decision; estado?: EstadoOperacion; cursor?: string };
+export type ValoresPropuestas = { proponente?: Proponente; activo?: Activo; decision?: Decision; estado?: EstadoOperacion; cursor?: string };
 export function leerPropuestas(p: Params): { filtro: FiltroPropuestas; valores: ValoresPropuestas } {
   const valores: ValoresPropuestas = {
+    proponente: en(PROPONENTES, uno(p, "proponente")),
     activo: en(ACTIVOS, uno(p, "activo")),
     decision: en(DECISIONES, uno(p, "decision")),
     estado: en(ESTADOS, uno(p, "estado")),

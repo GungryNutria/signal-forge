@@ -43,7 +43,7 @@ for (const m of MEDIDAS) {
       await page.goto("/propuestas");
       await expect(page.getByRole("heading", { name: "4 propuestas" })).toBeVisible();
       for (const b of await page.locator("main").getByRole("button").all()) expect((await b.innerText()).trim()).not.toMatch(prohibidos);
-      expect(await page.locator("main form:visible").evaluateAll((fs) => fs.map((f) => (f as HTMLFormElement).method))).toEqual(["get", "get", "get"]);
+      expect(await page.locator("main form:visible").evaluateAll((fs) => fs.map((f) => (f as HTMLFormElement).method))).toEqual(["get", "get", "get", "get"]);
       await page.getByRole("link", { name: /Ver la propuesta de las .*BTC\/USD/ }).first().click();
       await expect(page.getByRole("heading", { name: "Regla de entrada evaluada" })).toBeVisible();
       await expect(page.locator("main").getByRole("button")).toHaveCount(0);

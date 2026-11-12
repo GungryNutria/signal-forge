@@ -1,6 +1,6 @@
 import type { LoteAbierto } from "@/server/consultas/tipos";
 import { cartera, estado } from "../_lib/datos";
-import { cripto, hora, signo, unidad, usd, usdConSigno } from "../_lib/formato";
+import { cripto, hora, NOMBRE_PROPONENTE, signo, unidad, usd, usdConSigno } from "../_lib/formato";
 import { Chip } from "./chip";
 import { Barra, Cargando } from "./esqueleto";
 import { Vacio } from "./tarjeta";
@@ -79,6 +79,7 @@ export async function PosicionesAbiertas() {
         <thead>
           <tr className="bg-sunken text-[13px] font-semibold">
             <th scope="col" className="px-1.5 py-2 text-left">Activo</th>
+            <th scope="col" className="px-1.5 py-2 text-left">Proponente</th>
             <th scope="col" className="px-1.5 py-2 text-right">Cantidad</th>
             <th scope="col" className="px-1.5 py-2 text-right">Entrada</th>
             <th scope="col" className="px-1.5 py-2 text-right">Stop loss</th>
@@ -91,6 +92,7 @@ export async function PosicionesAbiertas() {
           {c.lotesAbiertos.map((l) => (
             <tr key={l.loteId} className="h-10 border-b border-line last:border-0">
               <th scope="row" className="px-1.5 text-left font-semibold">{l.activo}</th>
+              <td className="px-1.5 text-left">{NOMBRE_PROPONENTE[l.proponente]}</td>
               <td className="px-1.5 text-right">{cripto(l.cantidad, unidad(l.activo))}</td>
               <td className="px-1.5 text-right"><Monto texto={usd(l.precioEntrada)} /></td>
               <td className="px-1.5 text-right"><Monto texto={usd(l.stopLoss)} /></td>
@@ -107,7 +109,7 @@ export async function PosicionesAbiertas() {
         {c.lotesAbiertos.map((l) => (
           <li key={l.loteId} className="border-b border-line pb-3 last:border-0 last:pb-0">
             <p className="mb-2 text-sm">
-              <span className="font-semibold">{l.activo}</span> <span className="ml-1">{cripto(l.cantidad, unidad(l.activo))}</span>
+              <span className="font-semibold">{l.activo}</span> <span className="ml-1">{cripto(l.cantidad, unidad(l.activo))}</span> · {NOMBRE_PROPONENTE[l.proponente]}
             </p>
             <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
               <Dato t="Entrada">{usd(l.precioEntrada)}</Dato>
