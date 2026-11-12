@@ -4,6 +4,7 @@ import { Pool } from "pg";
 import { ACTIVOS, type Activo } from "@/core/activos";
 import { armarFoto, type DatoConTs } from "@/core/foto";
 import { evaluarTendenciaSmaV1, TENDENCIA_SMA_V1 } from "@/core/regla/tendencia-sma-v1";
+import { motivoSinDatos } from "@/core/mercado";
 import type { Modos } from "@/core/modos";
 import { ranura30 } from "@/core/tiempo";
 import { AlpacaBroker } from "@/server/broker/alpaca";
@@ -267,15 +268,14 @@ async function evaluarActivo(p: ParamsActivo): Promise<ResultadoCiclo["evaluacio
   const cerradas = barras
     .filter((x) => Date.parse(x.t) + 30 * MIN <= T.getTime())
     .sort((a, c) => Date.parse(a.t) - Date.parse(c.t));
-  let sinDatos: string | null = null;
-  if (esFallo(b)) sinDatos = `barras: ${b.message}`;
-  else if (esFallo(mercado.snapshots)) sinDatos = `snapshots: ${mercado.snapshots.message}`;
-  else if (cerradas.length < BARRAS_REQUERIDAS) sinDatos = `solo ${cerradas.length} barras cerradas (se necesitan ${BARRAS_REQUERIDAS})`;
-  else if (T.getTime() - (Date.parse(cerradas[cerradas.length - 1].t) + 30 * MIN) > 60 * MIN)
-    sinDatos = "la última barra cerrada terminó hace más de 60 min";
-  else if (!snap) sinDatos = "sin quote para el activo";
-  else if (snap.tsQuote.getTime() > T.getTime() || T.getTime() - snap.tsQuote.getTime() > 300_000)
-    sinDatos = "quote ausente o con más de 300 s";
+  const sinDatos = motivoSinDatos({
+    errorBarras: esFallo(b) ? b.message : null,
+    errorSnapshots: esFallo(mercado.snapshots) ? mercado.snapshots.message : null,
+    barrasCerradas: cerradas,
+    minimoBarras: BARRAS_REQUERIDAS,
+    tsQuote: snap?.tsQuote ?? null,
+    T,
+  });
 
   const dato = (valor: number | undefined, ts: Date | undefined): DatoConTs | null =>
     snap && valor !== undefined && ts ? { valor, ts } : null;
