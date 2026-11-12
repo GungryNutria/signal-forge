@@ -59,9 +59,9 @@ const normalizar = (m: Modos): Modos => ({
 });
 
 /**
- * Activación del decisor: el primer evento de modos con el decisor efectivo distinto de `apagado`.
- * La spec la define como el mínimo entre ese evento y la primera decisión recibida; `decisiones` llega con T-2
- * y entonces se agrega ese segundo término.
+ * Activación del decisor: el mínimo entre el primer evento de modos con el decisor efectivo distinto de `apagado` y la
+ * primera decisión recibida con el decisor en un modo distinto de `apagado` (las que llegan con el decisor apagado,
+ * o con la configuración inválida, no lo activan: su modo efectivo no es `ejecuta` ni `solo_registra`).
  */
 export async function activacionDecisor(db: NodePgDatabase): Promise<Date | null> {
   const [primero] = await db
@@ -70,5 +70,11 @@ export async function activacionDecisor(db: NodePgDatabase): Promise<Date | null
     .where(and(eq(eventos.tipo, "modo_proponentes"), sql`${eventos.detalle}->'decisor'->>'efectivo' <> 'apagado'`))
     .orderBy(asc(eventos.id))
     .limit(1);
-  return primero?.momento ?? null;
+  const [{ primera }] = (
+    await db.execute(
+      sql`SELECT min(recibida_en) AS primera FROM decisiones WHERE modo_efectivo IN ('ejecuta','solo_registra')`,
+    )
+  ).rows as { primera: string | null }[];
+  const candidatas = [primero?.momento, primera ? new Date(primera) : undefined].filter((d): d is Date => !!d);
+  return candidatas.length ? new Date(Math.min(...candidatas.map((d) => d.getTime()))) : null;
 }

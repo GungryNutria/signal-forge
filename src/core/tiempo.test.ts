@@ -6,7 +6,9 @@ import {
   minutosEntre,
   proximaEjecucion,
   proximaInvestigacion,
+  proximaRanuraDecisor,
   ranura30,
+  ranuraDecisor,
 } from "./tiempo";
 
 const d = (s: string) => new Date(s);
@@ -34,6 +36,15 @@ describe("tiempo", () => {
     expect(proximaInvestigacion(d("2026-11-06T18:10:00Z")).toISOString()).toBe("2026-11-06T18:15:00.000Z");
     expect(proximaInvestigacion(d("2026-11-06T18:15:00Z")).toISOString()).toBe("2026-11-06T19:15:00.000Z");
     expect(proximaInvestigacion(d("2026-11-06T23:50:00Z")).toISOString()).toBe("2026-11-07T00:15:00.000Z");
+  });
+
+  it("ranura del decisor: [HH:45, HH+1:45) en UTC (REQ-8)", () => {
+    expect(ranuraDecisor(d("2026-11-06T18:45:00Z")).toISOString()).toBe("2026-11-06T18:45:00.000Z");
+    expect(ranuraDecisor(d("2026-11-06T19:44:59.999Z")).toISOString()).toBe("2026-11-06T18:45:00.000Z");
+    expect(ranuraDecisor(d("2026-11-06T19:45:00Z")).toISOString()).toBe("2026-11-06T19:45:00.000Z");
+    expect(ranuraDecisor(d("2026-11-07T00:10:00Z")).toISOString()).toBe("2026-11-06T23:45:00.000Z");
+    expect(proximaRanuraDecisor(d("2026-11-06T18:45:00Z")).toISOString()).toBe("2026-11-06T19:45:00.000Z");
+    expect(proximaRanuraDecisor(d("2026-11-06T18:10:00Z")).toISOString()).toBe("2026-11-06T18:45:00.000Z");
   });
 
   it("minutos enteros hacia abajo", () => {

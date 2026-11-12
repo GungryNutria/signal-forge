@@ -5,6 +5,7 @@ import { urlDePrueba } from "./arnes";
 // Valores señuelo: ninguno es un secreto real.
 export const SENUELO = {
   token: `sfi_${"T".repeat(43)}`,
+  tokenDecisor: `sfd_${"U".repeat(43)}`,
   usuario: "sf-usuario-senuelo",
   contrasena: "sf-contrasena-senuelo",
 };
@@ -12,7 +13,7 @@ export const SENUELO = {
 export type Servidor = { base: string; detener: () => void };
 
 /** Arranca `next start` (requiere `npm run build` previo) con env señuelo y la base de prueba. */
-export async function arrancarServidor(puerto: number, tokenSha256: string): Promise<Servidor> {
+export async function arrancarServidor(puerto: number, tokenSha256: string, decisorSha256?: string): Promise<Servidor> {
   if (!existsSync(".next/BUILD_ID")) throw new Error("Falta .next: corre `npm run build` antes");
   const hijo: ChildProcess = spawn(
     process.execPath,
@@ -27,6 +28,7 @@ export async function arrancarServidor(puerto: number, tokenSha256: string): Pro
         DASHBOARD_USUARIO: SENUELO.usuario,
         DASHBOARD_CONTRASENA: SENUELO.contrasena,
         INVESTIGADOR_TOKEN_SHA256: tokenSha256,
+        ...(decisorSha256 ? { DECISOR_TOKEN_SHA256: decisorSha256, MODO_DECISOR: "solo_registra" } : {}),
         TRADING_PAUSADO: "false",
         APP_ENV: "test",
       },

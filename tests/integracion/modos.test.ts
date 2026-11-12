@@ -58,4 +58,16 @@ describe("registrarModos y activacionDecisor (AC-29)", () => {
     await expect(pool.query("UPDATE eventos SET detalle = '{}' WHERE tipo = 'modo_proponentes'")).rejects.toThrow();
     await expect(pool.query("DELETE FROM eventos WHERE tipo = 'modo_proponentes'")).rejects.toThrow();
   });
+
+  it("la activación es el mínimo con la primera decisión recibida; una recibida con el decisor apagado no cuenta", async () => {
+    const decision = (min: number, modo: string) =>
+      pool.query(
+        "INSERT INTO decisiones (recibida_en, ranura, estado, motivo, valida, es_original, modo_efectivo) VALUES ($1, $1, 'rechazada', 'x', false, false, $2)",
+        [t(min), modo],
+      );
+    await decision(2, "apagado");
+    expect((await activacionDecisor(db()))?.toISOString()).toBe(t(10).toISOString());
+    await decision(5, "solo_registra");
+    expect((await activacionDecisor(db()))?.toISOString()).toBe(t(5).toISOString());
+  });
 });

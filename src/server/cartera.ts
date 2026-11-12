@@ -7,7 +7,7 @@ import { diaUtc, inicioDiaUtc } from "@/core/tiempo";
 export type Consultable = Pick<NodePgDatabase, "execute">;
 
 export const SALDO_INICIAL_C = 1_000_000; // 10 000.00 USD
-const ULTIMO_EVENTO = sql`(SELECT ev.estado FROM eventos_orden ev WHERE ev.orden_id = o.id ORDER BY ev.id DESC LIMIT 1)`;
+export const ULTIMO_EVENTO = sql`(SELECT ev.estado FROM eventos_orden ev WHERE ev.orden_id = o.id ORDER BY ev.id DESC LIMIT 1)`;
 
 async function filas<T>(db: Consultable, consulta: ReturnType<typeof sql>): Promise<T[]> {
   return (await db.execute(consulta)).rows as T[];

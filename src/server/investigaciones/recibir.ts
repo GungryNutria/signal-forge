@@ -4,14 +4,14 @@ import { InvestigacionV1 } from "@/core/investigacion";
 import { jsonCanonico } from "@/core/propuesta";
 import { type Db, obtenerDb } from "@/server/db/cliente";
 import { eventos, investigaciones } from "@/server/db/esquema";
-import { tokenValido } from "./auth";
+import { identificarToken } from "./auth";
 
 export const MAX_CUERPO_BYTES = 16 * 1024;
 export const MAX_PETICIONES = 20;
 export const VENTANA_MIN = 60;
 const MAX_CRUDO_JSON_INVALIDO = 2_000;
 
-export type Dependencias = { db: Db; tokenSha256: string | undefined };
+export type Dependencias = { db: Db; tokenSha256: string | undefined; decisorTokenSha256?: string | undefined };
 
 type Rechazo = Partial<typeof investigaciones.$inferInsert>;
 
@@ -19,9 +19,9 @@ const json = (cuerpo: unknown, status: number, headers?: HeadersInit) =>
   Response.json(cuerpo, { status, headers });
 
 // Postgres no admite U+0000 en text ni en jsonb.
-const sinNulos = (s: string) => s.replaceAll("\u0000", "");
+export const sinNulos = (s: string) => s.replaceAll("\u0000", "");
 
-const contieneNulo = (v: unknown): boolean =>
+export const contieneNulo = (v: unknown): boolean =>
   typeof v === "string"
     ? v.includes("\u0000")
     : Array.isArray(v)
@@ -30,7 +30,7 @@ const contieneNulo = (v: unknown): boolean =>
         ? Object.entries(v).some(([k, x]) => contieneNulo(k) || contieneNulo(x))
         : false;
 
-function ipDe(request: Request): string | null {
+export function ipDe(request: Request): string | null {
   const ip =
     request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
     request.headers.get("x-real-ip");
@@ -38,7 +38,7 @@ function ipDe(request: Request): string | null {
 }
 
 /** Lee el cuerpo sin pasar de `max` bytes: no bufferiza lo que no se va a aceptar. */
-async function leerCuerpo(request: Request, max: number): Promise<string | null> {
+export async function leerCuerpo(request: Request, max: number): Promise<string | null> {
   const declarado = Number(request.headers.get("content-length"));
   if (Number.isFinite(declarado) && declarado > max) return null;
   const chunks: Buffer[] = [];
@@ -55,6 +55,14 @@ async function leerCuerpo(request: Request, max: number): Promise<string | null>
     chunks.push(Buffer.from(value));
   }
   return Buffer.concat(chunks).toString("utf8");
+}
+
+/** REQ-1: un 401 deja un evento `auth_fallida` con la ruta y la IP, nunca el contenido (REQ-21 de 001). */
+export async function registrarAuthFallida(db: Db, request: Request): Promise<void> {
+  await db
+    .insert(eventos)
+    .values({ tipo: "auth_fallida", detalle: { ruta: new URL(request.url).pathname, ip: ipDe(request) } })
+    .catch(() => console.error("auth_fallida: no se pudo registrar el evento")); // el 401 sale igual
 }
 
 async function registrarRechazo(db: Db, datos: Rechazo): Promise<string> {
@@ -80,14 +88,13 @@ export async function recibirInvestigacion(request: Request, dep: Dependencias):
   const { db } = dep;
   try {
     // 1. auth: sin contenido en el evento (REQ-21)
-    if (!tokenValido(request.headers.get("authorization"), dep.tokenSha256)) {
-      await db
-        .insert(eventos)
-        .values({
-          tipo: "auth_fallida",
-          detalle: { ruta: new URL(request.url).pathname, ip: ipDe(request) },
-        })
-        .catch(() => console.error("auth_fallida: no se pudo registrar el evento")); // el 401 sale igual
+    const rol = identificarToken(request.headers.get("authorization"), {
+      investigador: dep.tokenSha256,
+      decisor: dep.decisorTokenSha256,
+    });
+    if (rol === "decisor") return json({ error: "prohibido" }, 403); // REQ-1: el token del decisor no envía investigaciones
+    if (rol !== "investigador") {
+      await registrarAuthFallida(db, request);
       return json({ error: "no_autorizado" }, 401);
     }
 
@@ -202,5 +209,6 @@ export function recibirConEntorno(request: Request): Promise<Response> {
   return recibirInvestigacion(request, {
     db: obtenerDb(),
     tokenSha256: process.env.INVESTIGADOR_TOKEN_SHA256,
+    decisorTokenSha256: process.env.DECISOR_TOKEN_SHA256,
   });
 }

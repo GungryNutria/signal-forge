@@ -37,13 +37,13 @@ const eslintConfig = defineConfig([
       { regex: "(^@/|/)app/", message: "procesos no importa app." },
     ),
   },
-  // app: solo core, server/consultas y server/investigaciones.
+  // app: solo core, server/consultas, server/investigaciones y server/decisor.
   {
     files: ["src/app/**/*.{ts,tsx}", "src/proxy.ts"],
     rules: restringir(
       {
-        regex: "(^@/|/)server/(?!consultas(/|$)|investigaciones(/|$))",
-        message: "app solo importa server/consultas y server/investigaciones.",
+        regex: "(^@/|/)server/(?!consultas(/|$)|investigaciones(/|$)|decisor(/|$))",
+        message: "app solo importa server/consultas, server/investigaciones y server/decisor.",
       },
       { regex: "(^@/|/)procesos/", message: "app no importa procesos." },
       { regex: "^(pg|drizzle-orm)(/|$)", message: "app accede a la base solo vía server/*." },

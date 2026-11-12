@@ -88,6 +88,75 @@ export const evaluaciones = pgTable(
   ],
 );
 
+// Foto de features del decisor (REQ-4): lo que el servidor le entregó, tal cual. Inmutable.
+export const contextosDecisor = pgTable(
+  "contextos_decisor",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    creadoEn: ts("creado_en").notNull().defaultNow(),
+    // Primeros 16 hex del hash del token al que se entregó (REQ-9): cambiar el token invalida los contextos anteriores.
+    tokenHuella: char("token_huella", { length: 16 }).notNull(),
+    version: text("version").notNull(),
+    contenido: jsonb("contenido").notNull(),
+  },
+  (t) => [index("contextos_decisor_creado_idx").on(t.creadoEn)],
+);
+
+// Toda decisión recibida, válida o no (REQ-29). Una fila nunca se modifica. `valida` y `es_original` solo son
+// verdaderas en las que pasaron REQ-7 a REQ-9 y no son conflicto; el resto lleva `estado = 'rechazada'` y su motivo.
+export const decisiones = pgTable(
+  "decisiones",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    recibidaEn: ts("recibida_en").notNull().defaultNow(),
+    ranura: ts("ranura").notNull(),
+    estado: text("estado").notNull(),
+    motivo: text("motivo"),
+    motivos: jsonb("motivos"),
+    valida: boolean("valida").notNull(),
+    esOriginal: boolean("es_original").notNull(),
+    claveIdempotencia: text("clave_idempotencia"),
+    huellaContenido: char("huella_contenido", { length: 64 }),
+    ejecucionDecisor: text("ejecucion_decisor"),
+    versionInstrucciones: text("version_instrucciones"),
+    contextoId: uuid("contexto_id").references(() => contextosDecisor.id),
+    activo: text("activo"),
+    decision: text("decision"),
+    confianza: numeric("confianza", { precision: 4, scale: 3 }),
+    razonamiento: text("razonamiento"),
+    cuerpoCrudo: text("cuerpo_crudo"),
+    modoConfigurado: text("modo_configurado"),
+    modoEfectivo: text("modo_efectivo"),
+    motivoModo: text("motivo_modo"),
+  },
+  (t) => [
+    uniqueIndex("decisiones_clave_original_uq")
+      .on(t.claveIdempotencia)
+      .where(sql`${t.esOriginal}`),
+    uniqueIndex("decisiones_ranura_activo_valida_uq")
+      .on(t.ranura, t.activo)
+      .where(sql`${t.valida}`),
+    check("decisiones_estado_ck", sql`${t.estado} IN ('aceptada','rechazada')`),
+    check(
+      "decisiones_valida_ck",
+      sql`NOT ${t.valida} OR (
+        ${t.activo} IN ${ACTIVOS}
+        AND ${t.decision} IN ('comprar','no_comprar')
+        AND ${t.confianza} BETWEEN 0 AND 1
+        AND char_length(${t.razonamiento}) BETWEEN 1 AND 2000
+        AND ${t.contextoId} IS NOT NULL
+        AND ${t.versionInstrucciones} IS NOT NULL
+        AND ${t.modoEfectivo} IN ('ejecuta','solo_registra')
+      )`,
+    ),
+    index("decisiones_recibida_idx").on(t.recibidaEn.desc(), t.id.desc()),
+    index("decisiones_ranura_activo_idx").on(t.ranura, t.activo),
+    index("decisiones_activo_valida_idx")
+      .on(t.activo, t.recibidaEn.desc())
+      .where(sql`${t.valida}`),
+  ],
+);
+
 export const propuestas = pgTable(
   "propuestas",
   {
@@ -98,6 +167,8 @@ export const propuestas = pgTable(
     proponente: text("proponente"),
     ejecucionId: uuid("ejecucion_id"),
     evaluacionId: uuid("evaluacion_id").references(() => evaluaciones.id),
+    // Decisión del decisor que originó la propuesta (REQ-10). Nula en las del ciclo.
+    decisionId: uuid("decision_id").references(() => decisiones.id),
     versionRegla: text("version_regla"),
     activo: text("activo"),
     lado: text("lado"),
@@ -124,6 +195,7 @@ export const propuestas = pgTable(
     index("propuestas_activo_recibida_idx").on(t.activo, t.recibidaEn.desc()),
     index("propuestas_decision_idx").on(t.decision),
     index("propuestas_ejecucion_activo_idx").on(t.ejecucionId, t.activo),
+    index("propuestas_decision_id_idx").on(t.decisionId),
   ],
 );
 

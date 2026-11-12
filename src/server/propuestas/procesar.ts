@@ -42,6 +42,8 @@ export type CtxPropuesta = {
   maxEntradasAbiertasPorActivo: number;
   /** Evaluación del ciclo que originó la propuesta (la liga T-6; `v_dataset` la une por aquí). */
   evaluacionId?: string;
+  /** Decisión del decisor que originó la propuesta (spec 004); se guarda en `propuestas.decision_id`. */
+  decisionId?: string;
   /** Pausa entre consultas de llenado; los tests la sustituyen. */
   esperar?: (ms: number) => Promise<void>;
 };
@@ -81,6 +83,7 @@ async function decidir(
         entradaCruda: entrada ?? null,
         recibidaEn: ahora,
         evaluacionId: ctx.evaluacionId,
+        decisionId: ctx.decisionId,
         ...(p && {
           claveIdempotencia: p.clave_idempotencia,
           huellaContenido: huellaPropuesta(p),
