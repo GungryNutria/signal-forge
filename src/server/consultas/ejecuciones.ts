@@ -1,6 +1,8 @@
 import "server-only";
 import { sql } from "drizzle-orm";
 import { ACTIVOS, type Activo } from "@/core/activos";
+import type { Modo } from "@/core/modos";
+import { hipoteticoDe } from "./decisor";
 import { COLUMNAS_INVESTIGACION, type FilaInvestigacion, vistaInvestigacion } from "./investigaciones";
 import type {
   Decision,
@@ -90,7 +92,7 @@ function normalizarActivo(activo: string): Activo | null {
 }
 
 /** REQ-43: lo que evaluó la regla para un activo en una ejecución, con la investigación adjunta o `null`. */
-export async function detalleEvaluacion(ejecucionId: string, activo: string): Promise<DetalleEvaluacion | null> {
+export async function detalleEvaluacion(ejecucionId: string, activo: string, ahora: Date = new Date()): Promise<DetalleEvaluacion | null> {
   fallaInyectada("detalleEvaluacion");
   const a = normalizarActivo(activo);
   if (!a || !UUID.test(ejecucionId)) return null;
@@ -99,6 +101,7 @@ export async function detalleEvaluacion(ejecucionId: string, activo: string): Pr
     id: string;
     evaluada_en: Marca;
     resultado: ResultadoEvaluacion;
+    modo: Modo | null;
     version_regla: string;
     error_detalle: string | null;
     foto: { regla?: unknown } | null;
@@ -109,7 +112,7 @@ export async function detalleEvaluacion(ejecucionId: string, activo: string): Pr
     estado: EstadoEjecucion;
     version_regla_ejecucion: string;
   }>(
-    sql`SELECT ev.id, ev.evaluada_en, ev.resultado, ev.version_regla, ev.error_detalle, ev.foto, ev.investigacion_id,
+    sql`SELECT ev.id, ev.evaluada_en, ev.resultado, ev.modo, ev.version_regla, ev.error_detalle, ev.foto, ev.investigacion_id,
         x.ranura, x.inicio, x.fin, x.estado, x.version_regla AS version_regla_ejecucion
         FROM evaluaciones ev
         JOIN v_ejecuciones x ON x.id = ev.ejecucion_id
@@ -147,5 +150,7 @@ export async function detalleEvaluacion(ejecucionId: string, activo: string): Pr
     foto: ev.foto,
     propuesta: prop ? { id: prop.id, decision: prop.decision } : null,
     investigacion: inv ? vistaInvestigacion(inv, fecha(ev.evaluada_en)) : null,
+    modo: ev.modo,
+    hipotetico: ev.resultado === "senal_registrada" ? await hipoteticoDe({ evaluacionId: ev.id }, ahora) : null,
   };
 }

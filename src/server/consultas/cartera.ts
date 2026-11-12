@@ -8,7 +8,7 @@ import { entradasAbiertasPorActivo, SALDO_INICIAL_C } from "@/server/cartera";
 import { obtenerDb } from "@/server/db/cliente";
 import { leerMaxEntradasAbiertas } from "@/server/env";
 import { ACTIVOS } from "@/core/activos";
-import type { LoteAbierto, ResumenCartera } from "./tipos";
+import type { LoteAbierto, Proponente, ResumenCartera } from "./tipos";
 import { fallaInyectada, fecha, filas, iso, type Marca } from "./util";
 
 /** REQ-6: un precio con más de 180 s o con un error posterior a su lectura no se muestra como actual. */
@@ -17,6 +17,7 @@ export const PRECIO_FRESCO_MS = 180_000;
 type FilaLectura = { activo: string; bid: string | null; leido_en: Marca | null; ultimo_error_en: Marca | null };
 type FilaLote = {
   id: string;
+  proponente: Proponente;
   propuesta_id: string;
   activo: string;
   abierto_en: Marca;
@@ -52,10 +53,10 @@ export async function leerBase(ahora: Date): Promise<BaseCartera> {
         FROM cierres_lote`,
   );
   const lotes = await filas<FilaLote>(
-    sql`SELECT l.id, l.propuesta_id, l.activo, l.abierto_en, round(l.nocional_entrada_usd * 100)::text AS nocional_c,
+    sql`SELECT l.id, CASE WHEN p.proponente = 'decisor' THEN 'decisor' ELSE 'ciclo' END AS proponente, l.propuesta_id, l.activo, l.abierto_en, round(l.nocional_entrada_usd * 100)::text AS nocional_c,
         l.nocional_entrada_usd::text AS nocional_usd, l.cantidad_neta::text AS cantidad_neta,
         l.precio_entrada::text AS precio_entrada, l.stop_loss::text AS stop_loss, l.take_profit::text AS take_profit
-        FROM lotes l
+        FROM lotes l JOIN propuestas p ON p.id = l.propuesta_id
         WHERE NOT EXISTS (SELECT 1 FROM cierres_lote c WHERE c.lote_id = l.id)
         ORDER BY l.abierto_en DESC, l.id DESC`,
   );
@@ -80,6 +81,7 @@ export async function resumenCartera(ahora: Date): Promise<ResumenCartera> {
     if (pnlC === null) completo = false;
     else noRealizadoC += pnlC;
     return {
+      proponente: l.proponente,
       loteId: l.id,
       propuestaId: l.propuesta_id,
       activo: l.activo,

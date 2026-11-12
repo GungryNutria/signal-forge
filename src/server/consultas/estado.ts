@@ -2,9 +2,12 @@ import "server-only";
 import { sql } from "drizzle-orm";
 import { ACTIVOS, type Activo } from "@/core/activos";
 import { deCentavos } from "@/core/dinero";
-import { diaUtc, inicioDiaSiguienteUtc, proximaEjecucion, proximaInvestigacion } from "@/core/tiempo";
+import { diaUtc, inicioDiaSiguienteUtc, proximaEjecucion, proximaInvestigacion, proximaRanuraDecisor } from "@/core/tiempo";
+import { obtenerDb } from "@/server/db/cliente";
 import { esquemaEnv } from "@/server/env";
+import { activacionDecisor, modosActuales } from "@/server/modos";
 import { PRECIO_FRESCO_MS, leerBase, pnlDiaConUltimoBid } from "./cartera";
+import { alertasDecisor, ultimaRanura } from "./decisor";
 import { ultimasAceptadas } from "./investigaciones";
 import type { EstadoEjecucion, EstadoSistema } from "./tipos";
 import { fallaInyectada, fecha, filas, iso, type Marca, resultadosPorEjecucion } from "./util";
@@ -16,7 +19,15 @@ export async function estadoSistema(ahora: Date): Promise<EstadoSistema> {
   fallaInyectada("estadoSistema");
   const { TRADING_PAUSADO } = esquemaEnv.pick({ TRADING_PAUSADO: true }).parse(process.env);
 
-  const [ultimas, investigaciones, desconocidas, eventos, base] = await Promise.all([
+  // Variables de modo inválidas: `modos` es null y el bloque lo muestra como error (REQ-14); el resto del estado sigue.
+  let modos: EstadoSistema["modos"] = null;
+  try {
+    modos = modosActuales();
+  } catch {
+    modos = null;
+  }
+
+  const [ultimas, investigaciones, desconocidas, eventos, base, activacion] = await Promise.all([
     filas<{ id: string; inicio: Marca; fin: Marca | null; estado: EstadoEjecucion; version_regla: string }>(
       sql`SELECT id, inicio, fin, estado, version_regla FROM v_ejecuciones ORDER BY inicio DESC, id DESC LIMIT 1`,
     ),
@@ -28,6 +39,11 @@ export async function estadoSistema(ahora: Date): Promise<EstadoSistema> {
       sql`SELECT count(*)::text AS n FROM eventos WHERE tipo = 'pausa_automatica' AND dia_utc = ${diaUtc(ahora)}::date`,
     ),
     leerBase(ahora),
+    activacionDecisor(obtenerDb()),
+  ]);
+  const [ultimaDelDecisor, alertas] = await Promise.all([
+    ultimaRanura(ahora),
+    alertasDecisor(ahora, activacion, modos?.decisor.efectivo ?? null),
   ]);
 
   const ult = ultimas[0] ?? null;
@@ -76,8 +92,25 @@ export async function estadoSistema(ahora: Date): Promise<EstadoSistema> {
           porActivo: porActivo!,
         }
       : null,
+    modos,
+    // Con el ciclo apagado no hay ciclo que detener. Severidad: `neg` si ejecuta (o la configuración es inválida), `warn` si solo registra (AC-UX-3).
     cicloDetenido:
-      ult && ahora.getTime() - fecha(ult.inicio).getTime() > CICLO_DETENIDO_MS ? { desde: iso(ult.inicio) } : null,
+      ult && modos?.ciclo.efectivo !== "apagado" && ahora.getTime() - fecha(ult.inicio).getTime() > CICLO_DETENIDO_MS
+        ? { desde: iso(ult.inicio), severidad: modos?.ciclo.efectivo === "solo_registra" ? "warn" : "neg" }
+        : null,
+    decisor: {
+      activacion: activacion ? iso(activacion) : null,
+      proximaRanura: iso(proximaRanuraDecisor(ahora)),
+      ultimaRanura: ultimaDelDecisor && {
+        ranura: ultimaDelDecisor.ranura,
+        fin: ultimaDelDecisor.fin,
+        estado: ultimaDelDecisor.estado,
+        enCurso: ultimaDelDecisor.enCurso,
+        modo: ultimaDelDecisor.modo,
+        porActivo: ultimaDelDecisor.porActivo,
+      },
+      alertas,
+    },
     investigacionPorActivo,
     broker: { ok: !desactualizado, leidoEn: masVieja === null ? null : iso(new Date(masVieja)), desactualizado },
     ordenesDesconocidas: desconocidas.map((o) => ({ activo: o.activo, ordenId: o.id, propuestaId: o.propuesta_id })),

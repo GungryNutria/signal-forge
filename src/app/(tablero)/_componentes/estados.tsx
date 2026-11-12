@@ -46,6 +46,8 @@ export function ChipResultado({ r }: { r: ResultadoActivo | null }) {
       return <Chip tono="warn">Datos no disponibles</Chip>;
     case "error":
       return <Chip tono="neg">Error</Chip>;
+    case "senal_registrada":
+      return <Chip>Señal (solo registro)</Chip>;
   }
 }
 
@@ -63,6 +65,8 @@ export function textoResultado(r: ResultadoActivo | null): string {
       return "Datos no disponibles";
     case "error":
       return "Error";
+    case "senal_registrada":
+      return "Señal (solo registro)";
   }
 }
 

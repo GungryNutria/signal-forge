@@ -17,6 +17,7 @@ const TEXTO_RESULTADO = {
   propuesta: "Propuesta",
   datos_no_disponibles: "Datos no disponibles",
   error: "Error",
+  senal_registrada: "Señal (solo registro)",
   omitida_solapamiento: "Omitida por solapamiento",
 } as const;
 const OPCIONES_RESULTADO = [{ valor: "", texto: "Todos" }, ...RESULTADOS.map((r) => ({ valor: r, texto: TEXTO_RESULTADO[r] }))];

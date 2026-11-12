@@ -1,6 +1,7 @@
 import "server-only";
 import { sql } from "drizzle-orm";
 import type { ResultadoRegla } from "@/core/riesgo";
+import { decisionConContexto } from "./decisor";
 import { COLUMNAS_INVESTIGACION, type FilaInvestigacion, vistaInvestigacion } from "./investigaciones";
 import type {
   Decision,
@@ -11,6 +12,7 @@ import type {
   FiltroPropuestas,
   OrdenVista,
   Pagina,
+  Proponente,
   ReglaDetalle,
   ReglaPrincipal,
 } from "./tipos";
@@ -29,6 +31,9 @@ const ESTADO_OPERACION = sql`CASE
   ELSE 'pendiente_llenado'
 END`;
 
+// El proponente de una propuesta: 'decisor' si lo dice la fila; todo lo demás es el ciclo (usa tendencia-sma-v1).
+const PROPONENTE = sql`CASE WHEN p.proponente = 'decisor' THEN 'decisor' ELSE 'ciclo' END`;
+
 const DESDE = sql`FROM propuestas p
   LEFT JOIN lotes l ON l.propuesta_id = p.id
   LEFT JOIN cierres_lote c ON c.lote_id = l.id
@@ -36,6 +41,7 @@ const DESDE = sql`FROM propuestas p
 
 type FilaSql = {
   id: string;
+  proponente: Proponente;
   recibida_en: Marca;
   activo: string | null;
   lado: string | null;
@@ -59,6 +65,7 @@ function reglaPrincipal(reglas: ResultadoRegla[] | null): { principal: ReglaPrin
 export async function listarPropuestas(f: FiltroPropuestas = {}): Promise<Pagina<FilaPropuesta>> {
   fallaInyectada("listarPropuestas");
   const filtros = [sql`TRUE`];
+  if (f.proponente) filtros.push(sql`${PROPONENTE} = ${f.proponente}`);
   if (f.activo) filtros.push(sql`p.activo = ${f.activo}`);
   if (f.decision) filtros.push(sql`p.decision = ${f.decision}`);
   if (f.estado) filtros.push(sql`${ESTADO_OPERACION} = ${f.estado}`);
@@ -74,8 +81,8 @@ export async function listarPropuestas(f: FiltroPropuestas = {}): Promise<Pagina
 
   const [lote, [{ n }]] = await Promise.all([
     filas<FilaSql>(
-      sql`SELECT p.id, p.recibida_en, p.activo, p.lado, p.nocional_usd::text AS nocional_usd, p.cantidad::text AS cantidad,
-          p.decision, p.motivo, p.reglas, ${ESTADO_OPERACION} AS estado, c.pnl_neto_usd::text AS pnl_usd
+      sql`SELECT p.id, ${PROPONENTE} AS proponente, p.recibida_en, p.activo, p.lado, p.nocional_usd::text AS nocional_usd,
+          p.cantidad::text AS cantidad, p.decision, p.motivo, p.reglas, ${ESTADO_OPERACION} AS estado, c.pnl_neto_usd::text AS pnl_usd
           ${DESDE}
           WHERE ${donde} ${posicion}
           ORDER BY p.recibida_en ${orden}, p.id ${orden}
@@ -90,6 +97,7 @@ export async function listarPropuestas(f: FiltroPropuestas = {}): Promise<Pagina
       const { principal, mas } = reglaPrincipal(r.reglas);
       return {
         id: r.id,
+        proponente: r.proponente,
         recibidaEn: iso(r.recibida_en),
         activo: r.activo,
         lado: r.lado,
@@ -111,7 +119,7 @@ export async function listarPropuestas(f: FiltroPropuestas = {}): Promise<Pagina
 
 type FilaDetalle = FilaSql & {
   tipo_orden: string | null;
-  proponente: string | null;
+  decision_id: string | null;
   clave_idempotencia: string | null;
   version_regla: string | null;
   justificacion: unknown;
@@ -140,7 +148,7 @@ export async function detallePropuesta(id: string): Promise<DetallePropuesta | n
 
   const [p] = await filas<FilaDetalle>(
     sql`SELECT p.id, p.recibida_en, p.activo, p.lado, p.nocional_usd::text AS nocional_usd, p.cantidad::text AS cantidad,
-        p.decision, p.motivo, p.reglas, p.tipo_orden, p.proponente, p.clave_idempotencia, p.version_regla,
+        p.decision, p.motivo, p.reglas, p.tipo_orden, ${PROPONENTE} AS proponente, p.decision_id, p.clave_idempotencia, p.version_regla,
         p.justificacion, p.ejecucion_id, p.evaluacion_id,
         ${ESTADO_OPERACION} AS estado, c.pnl_neto_usd::text AS pnl_usd,
         CASE
@@ -214,6 +222,8 @@ export async function detallePropuesta(id: string): Promise<DetallePropuesta | n
   const [cierre] = p.lote_id && p.cerrado_en
     ? await filas<{
         motivo_cierre: "stop_loss" | "take_profit";
+        pnl_a_nivel_usd: string;
+        pnl_a_nivel_pct: string;
         nivel: string;
         precio_disparo: string | null;
         precio_disparo_ts: Marca | null;
@@ -232,13 +242,15 @@ export async function detallePropuesta(id: string): Promise<DetallePropuesta | n
             round(n.s / vc.precio_entrada - 1, 6)::text AS movimiento_pct, vc.deslizamiento_usd::text AS deslizamiento_usd,
             vc.deslizamiento_pct::text AS deslizamiento_pct, vc.comision_usd::text AS comision_usd,
             round(vc.comision_usd / vc.nocional_entrada_usd, 6)::text AS comision_pct, vc.pnl_neto_usd::text AS pnl_neto_usd,
-            vc.pnl_neto_pct::text AS pnl_neto_pct
+            vc.pnl_neto_pct::text AS pnl_neto_pct,
+            vc.pnl_a_nivel_usd::text AS pnl_a_nivel_usd, vc.pnl_a_nivel_pct::text AS pnl_a_nivel_pct
             FROM v_cierres vc JOIN lotes l ON l.id = vc.lote_id
             CROSS JOIN LATERAL (SELECT CASE WHEN vc.motivo_cierre = 'stop_loss' THEN l.stop_loss ELSE l.take_profit END AS s) n
             WHERE vc.lote_id = ${p.lote_id}::uuid`,
       )
     : [];
 
+  const origen = p.decision_id ? await decisionConContexto(p.decision_id) : null;
   const [ejecucion] = p.ejecucion_id
     ? await filas<{ id: string; ranura: Marca; inicio: Marca; version_regla: string }>(
         sql`SELECT id, ranura, inicio, version_regla FROM ejecuciones WHERE id = ${p.ejecucion_id}::uuid`,
@@ -264,6 +276,7 @@ export async function detallePropuesta(id: string): Promise<DetallePropuesta | n
     motivo: p.motivo,
     estado: p.estado,
     proponente: p.proponente,
+    decisor: origen && { decision: origen.decision, contexto: origen.contexto },
     claveIdempotencia: p.clave_idempotencia,
     versionRegla: p.version_regla,
     reglaEntrada: p.justificacion,
@@ -272,6 +285,8 @@ export async function detallePropuesta(id: string): Promise<DetallePropuesta | n
     salida: cierre
       ? {
           motivo: cierre.motivo_cierre,
+          pnlANivelUsd: cierre.pnl_a_nivel_usd,
+          pnlANivelPct: cierre.pnl_a_nivel_pct,
           nivel: cierre.nivel,
           precioDisparo: cierre.precio_disparo,
           precioDisparoEn: cierre.precio_disparo_ts ? iso(cierre.precio_disparo_ts) : null,

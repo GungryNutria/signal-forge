@@ -7,7 +7,9 @@ import { resumenCartera } from "@/server/consultas/cartera";
 import { estadoSistema } from "@/server/consultas/estado";
 import { ultimasInvestigaciones } from "@/server/consultas/investigaciones";
 import { detallePropuesta, listarPropuestas } from "@/server/consultas/propuestas";
-import { DESLIZAMIENTO_CONOCIDO, sembrar } from "../../scripts/sembrar";
+import { detalleDecision, listarRanuras } from "@/server/consultas/decisor";
+import { operacionesPrecio } from "@/server/consultas/precio";
+import { DESLIZAMIENTO_CONOCIDO, RANURAS_CONOCIDAS, sembrar } from "../../scripts/sembrar";
 import { abrirPool, urlDePrueba, vaciarBase } from "./arnes";
 
 // T-10: el read model del dashboard contra los escenarios sembrados (S1 a S5, REQ-6, REQ-41, REQ-43, REQ-44).
@@ -25,6 +27,8 @@ beforeAll(() => {
   pool = abrirPool(3);
 });
 afterEach(() => {
+  delete process.env.MODO_CICLO;
+  delete process.env.MODO_DECISOR;
   process.env.TRADING_PAUSADO = "false";
   process.env.APP_ENV = "test";
   delete process.env.SF_FALLA_INYECTADA;
@@ -59,7 +63,7 @@ describe("ciclo detenido (REQ-44, AC-37)", () => {
   it("46 min: alerta con la hora de inicio; 44 min: sin alerta", async () => {
     await con("ciclo-detenido-46");
     const e46 = await estadoSistema(new Date());
-    expect(e46.cicloDetenido).toEqual({ desde: e46.ultimaEjecucion!.inicio });
+    expect(e46.cicloDetenido).toEqual({ desde: e46.ultimaEjecucion!.inicio, severidad: "neg" });
     await con("ciclo-44");
     expect((await estadoSistema(new Date())).cicloDetenido).toBeNull();
   });
@@ -544,5 +548,328 @@ describe("spec 003: R11 y deslizamiento en el read model", () => {
         expect(d.salida === null, `${escenario} ${f.estado}`).toBe(f.estado !== "cerrada_tp" && f.estado !== "cerrada_sl");
       }
     }
+  });
+});
+
+// ───────────────────────────── Spec 004: modos, decisor, ranuras y proponentes ─────────────────────────────
+
+const MIN = 60_000;
+const AHORA = new Date("2026-11-12T14:20:00Z"); // 35 min dentro de la ranura 13:45 a 14:45
+async function conAhora(escenario: string) {
+  await vaciarBase();
+  await sembrar(pool, escenario, AHORA);
+}
+const hace = (min: number) => new Date(AHORA.getTime() - min * MIN).toISOString();
+/** Horas enteras entre la ranura en curso (13:45) y una ranura. */
+const k = (f: { ranura: string }) => Math.round((Date.parse("2026-11-12T13:45:00Z") - Date.parse(f.ranura)) / 3_600_000);
+
+describe("modos y severidad del ciclo detenido (REQ-14, REQ-16, REQ-17, AC-UX-3, AC-UX-4)", () => {
+  it("por defecto: el ciclo ejecuta y el decisor está apagado, sin activar", async () => {
+    await conAhora("ciclo-detenido-46");
+    const e = await estadoSistema(AHORA);
+    expect(e.modos).toEqual({
+      ciclo: { configurado: "ejecuta", efectivo: "ejecuta", motivo: null },
+      decisor: { configurado: "apagado", efectivo: "apagado", motivo: null },
+    });
+    expect(e.decisor).toEqual({ activacion: null, proximaRanura: "2026-11-12T14:45:00.000Z", ultimaRanura: null, alertas: [] });
+    expect(e.cicloDetenido?.severidad).toBe("neg");
+  });
+
+  it("ciclo en Solo registra: ciclo detenido en warn; apagado: no hay ciclo que detener", async () => {
+    await conAhora("ciclo-detenido-46");
+    process.env.MODO_CICLO = "solo_registra";
+    expect((await estadoSistema(AHORA)).cicloDetenido).toMatchObject({ severidad: "warn" });
+    process.env.MODO_CICLO = "apagado";
+    expect((await estadoSistema(AHORA)).cicloDetenido).toBeNull();
+  });
+
+  it("los dos en Ejecuta: ninguno ejecuta y el motivo viaja en el modo", async () => {
+    await conAhora("ciclo-detenido-46");
+    process.env.MODO_CICLO = "ejecuta";
+    process.env.MODO_DECISOR = "ejecuta";
+    const e = await estadoSistema(AHORA);
+    expect(e.modos?.ciclo).toEqual({ configurado: "ejecuta", efectivo: "solo_registra", motivo: "dos_proponentes_en_ejecuta" });
+    expect(e.modos?.decisor).toEqual({ configurado: "ejecuta", efectivo: "solo_registra", motivo: "dos_proponentes_en_ejecuta" });
+    expect(e.cicloDetenido?.severidad).toBe("warn");
+  });
+
+  it("decisor en Ejecuta con N inválida: opera en Solo registra por R11 (REQ-17)", async () => {
+    await conAhora("ciclo-detenido-46");
+    process.env.MODO_CICLO = "solo_registra";
+    process.env.MODO_DECISOR = "ejecuta";
+    process.env.MAX_ENTRADAS_ABIERTAS_POR_ACTIVO = "0";
+    try {
+      expect((await estadoSistema(AHORA)).modos?.decisor).toEqual({ configurado: "ejecuta", efectivo: "solo_registra", motivo: "r11_no_vigente" });
+    } finally {
+      delete process.env.MAX_ENTRADAS_ABIERTAS_POR_ACTIVO;
+    }
+  });
+
+  it("variables de modo inválidas: modos es null y el resto del estado sigue", async () => {
+    await conAhora("ciclo-detenido-46");
+    process.env.MODO_DECISOR = "sí";
+    const e = await estadoSistema(AHORA);
+    expect(e.modos).toBeNull();
+    expect(e.cicloDetenido?.severidad).toBe("neg");
+    expect(e.decisor.alertas).toEqual([]);
+  });
+});
+
+describe("alerta del decisor (REQ-27, AC-22, AC-UX-3)", () => {
+  it("2 h 1 min en SOL/USD y 30 min en BTC/USD: la alerta nombra solo a SOL/USD", async () => {
+    await conAhora("decisor-alerta");
+    process.env.MODO_CICLO = "solo_registra";
+    process.env.MODO_DECISOR = "ejecuta";
+    const e = await estadoSistema(AHORA);
+    expect(e.decisor.alertas).toEqual([{ activo: "SOL/USD", desde: hace(121), ultimaValida: hace(121), severidad: "neg" }]);
+    expect(e.decisor.activacion).toBe(hace(360));
+    process.env.MODO_CICLO = "ejecuta";
+    process.env.MODO_DECISOR = "solo_registra";
+    expect((await estadoSistema(AHORA)).decisor.alertas).toMatchObject([{ activo: "SOL/USD", severidad: "warn" }]);
+  });
+
+  it("1 h 59 min: sin alerta; con el decisor apagado: sin alerta", async () => {
+    await conAhora("decisor-alerta");
+    process.env.MODO_CICLO = "solo_registra";
+    process.env.MODO_DECISOR = "ejecuta";
+    expect((await estadoSistema(new Date(AHORA.getTime() - 2 * MIN))).decisor.alertas).toEqual([]);
+    process.env.MODO_DECISOR = "apagado";
+    expect((await estadoSistema(AHORA)).decisor.alertas).toEqual([]);
+  });
+
+  it("sin ninguna decisión válida desde la activación: alerta de los dos activos, sin hora", async () => {
+    await vaciarBase();
+    await pool.query(`INSERT INTO eventos (momento, tipo, detalle) VALUES ($1, 'modo_proponentes', $2)`, [
+      hace(30),
+      JSON.stringify({ ciclo: { configurado: "solo_registra", efectivo: "solo_registra", motivo: null }, decisor: { configurado: "ejecuta", efectivo: "ejecuta", motivo: null } }),
+    ]);
+    process.env.MODO_CICLO = "solo_registra";
+    process.env.MODO_DECISOR = "ejecuta";
+    const e = await estadoSistema(AHORA);
+    expect(e.decisor.activacion).toBe(hace(30));
+    expect(e.decisor.alertas).toEqual([
+      { activo: "BTC/USD", desde: null, ultimaValida: null, severidad: "neg" },
+      { activo: "SOL/USD", desde: null, ultimaValida: null, severidad: "neg" },
+    ]);
+  });
+
+  it("la última ranura se calcula aunque seguimiento aún no la cierre: terminada y en curso", async () => {
+    await conAhora("decisor-alerta");
+    const r = await listarRanuras({}, AHORA);
+    expect(r.filas.map((f) => [f.ranura, f.estado, f.enCurso])).toEqual([
+      ["2026-11-12T13:45:00.000Z", "parcial", true],
+      ["2026-11-12T11:45:00.000Z", "parcial", false],
+    ]);
+    const u = (await estadoSistema(AHORA)).decisor.ultimaRanura!;
+    expect(u).toMatchObject({ ranura: "2026-11-12T13:45:00.000Z", fin: "2026-11-12T14:45:00.000Z", estado: "parcial", enCurso: true, modo: "ejecuta" });
+    expect(u.porActivo["BTC/USD"].tipo).toBe("no_comprar");
+    expect(u.porActivo["SOL/USD"].tipo).toBe("sin_decision");
+  });
+});
+
+describe("historial de ranuras (REQ-26, REQ-28, AC-21, AC-23, AC-30)", () => {
+  it("porcentajes de 24 h y 7 días contra el conteo a mano, sin las ranuras apagadas", async () => {
+    await conAhora("decisor-ranuras");
+    const r = await listarRanuras({}, AHORA);
+    expect(r.h24).toEqual(RANURAS_CONOCIDAS.h24);
+    expect(r.d7).toEqual(RANURAS_CONOCIDAS.d7);
+    expect(r.total).toBe(61);
+    expect(r.filas[0]).toMatchObject({ enCurso: true, estado: "parcial", ranura: "2026-11-12T13:45:00.000Z" });
+    expect(r.filas).toHaveLength(50);
+  });
+
+  it("cada caso de la spec tiene su estado, con las más recientes primero", async () => {
+    await conAhora("decisor-ranuras");
+    const p1 = await listarRanuras({}, AHORA);
+    const todas = [...p1.filas, ...(await listarRanuras({ antes: p1.siguiente! }, AHORA)).filas];
+    expect(todas).toHaveLength(61);
+    for (const [hora, estado] of Object.entries(RANURAS_CONOCIDAS.estados)) {
+      expect(todas.find((f) => k(f) === Number(hora))?.estado, `k=${hora}`).toBe(estado);
+    }
+    expect(todas.find((f) => k(f) === 3)?.porActivo["BTC/USD"]).toMatchObject({ tipo: "invalida", motivo: "contexto_vencido" });
+    expect(todas.find((f) => k(f) === 5)?.porActivo["SOL/USD"]).toMatchObject({ tipo: "comprar_rechazada", motivo: "datos_no_disponibles" });
+    expect(todas.find((f) => k(f) === 2)?.porActivo).toMatchObject({ "BTC/USD": { tipo: "no_comprar" }, "SOL/USD": { tipo: "sin_decision" } });
+    expect(todas.find((f) => k(f) === 7)).toMatchObject({ modo: "apagado", versionInstrucciones: null });
+    expect(todas.find((f) => k(f) === 6)).toMatchObject({ modo: "ejecuta", versionInstrucciones: expect.stringMatching(/^decisor-v1@/) });
+  });
+
+  it("filtros de estado y de resultado se combinan; paginación por cursor", async () => {
+    await conAhora("decisor-ranuras");
+    expect((await listarRanuras({ estado: "sin_llegar" }, AHORA)).total).toBe(2);
+    expect((await listarRanuras({ estado: "apagado" }, AHORA)).total).toBe(2);
+    expect((await listarRanuras({ resultado: "comprar_rechazada" }, AHORA)).total).toBe(1);
+    expect((await listarRanuras({ resultado: "comprar_rechazada", activo: "BTC/USD" }, AHORA)).total).toBe(0);
+    expect((await listarRanuras({ resultado: "no_comprar", estado: "parcial" }, AHORA)).total).toBe(3);
+
+    const p1 = await listarRanuras({}, AHORA);
+    expect(p1).toMatchObject({ anterior: null, siguiente: expect.stringMatching(/^a:/) });
+    const p2 = await listarRanuras({ antes: p1.siguiente! }, AHORA);
+    expect(p2.filas).toHaveLength(11);
+    expect(p2).toMatchObject({ siguiente: null, anterior: expect.stringMatching(/^d:/) });
+    expect(Date.parse(p2.filas[0].ranura)).toBeLessThan(Date.parse(p1.filas[49].ranura));
+    const atras = await listarRanuras({ antes: p2.anterior! }, AHORA);
+    expect(atras.filas.map((f) => f.ranura)).toEqual(p1.filas.map((f) => f.ranura));
+    expect(atras.anterior).toBeNull();
+  });
+
+  it("sin activación no hay ranuras; con falla inyectada la vista falla sola", async () => {
+    await vaciarBase();
+    expect(await listarRanuras({}, AHORA)).toMatchObject({ filas: [], total: 0, h24: { total: 0, pct: null } });
+    process.env.SF_FALLA_INYECTADA = "listarRanuras";
+    await expect(listarRanuras({}, AHORA)).rejects.toThrow(/Falla inyectada en listarRanuras/);
+    process.env.SF_FALLA_INYECTADA = "detalleDecision";
+    await expect(detalleDecision("00000000-0000-4000-8000-000000000000", AHORA)).rejects.toThrow(/Falla inyectada en detalleDecision/);
+  });
+});
+
+describe("detalle de una decisión (REQ-24, REQ-29, AC-UX-12)", () => {
+  async function idDe(hora: number, activo: "BTC/USD" | "SOL/USD"): Promise<string> {
+    const f = (await listarRanuras({}, AHORA)).filas.find((x) => k(x) === hora)!;
+    const a = f.porActivo[activo];
+    if (a.tipo === "sin_decision") throw new Error("sin decisión");
+    return a.decisionId;
+  }
+
+  it("no comprar: razonamiento, contexto de hace 3 min y resultado hipotético pendiente con su hueco", async () => {
+    await conAhora("decisor-decisiones");
+    const d = (await detalleDecision(await idDe(1, "BTC/USD"), AHORA))!;
+    expect(d.decision).toMatchObject({ activo: "BTC/USD", decision: "no_comprar", confianza: "0.720", valida: true, estado: "aceptada", motivo: null, motivos: null, cuerpoCrudo: null, modoEfectivo: "ejecuta" });
+    expect(d.decision.razonamiento).toContain("Tendencia al alza");
+    expect(d.contexto).toMatchObject({ antiguedadAlRecibirMin: 3 });
+    expect((d.contexto!.contenido as { version: string }).version).toBe("contexto-v1");
+    expect(d.propuestaId).toBeNull();
+    // Sin muestras de precio desde la decisión: pendiente, con todo el tiempo como hueco.
+    expect(d.hipotetico).toMatchObject({ estado: "pendiente", huecos: [{ hasta: AHORA.toISOString() }] });
+    expect(d.hipotetico).toHaveProperty("precioEntrada");
+  });
+
+  it("comprar ejecutada y rechazada por R11: llevan su propuesta y no tienen hipotético", async () => {
+    await conAhora("decisor-decisiones");
+    for (const hora of [3, 2]) {
+      const d = (await detalleDecision(await idDe(hora, "BTC/USD"), AHORA))!;
+      expect(d.propuestaId, `k=${hora}`).not.toBeNull();
+      expect(d.hipotetico).toBeNull();
+    }
+  });
+
+  it("inválida: contenido recibido literal y motivo; contexto vencido: el detalle registrado", async () => {
+    await conAhora("decisor-decisiones");
+    const crudo = (await pool.query(`SELECT id FROM decisiones WHERE motivo = 'decision_invalida'`)).rows[0].id as string;
+    const inv = (await detalleDecision(crudo, AHORA))!;
+    expect(inv.decision).toMatchObject({ valida: false, estado: "rechazada", motivo: "decision_invalida", activo: null, cuerpoCrudo: '{"decision":"comprar","confianza":7}' });
+    expect(inv.contexto).toBeNull();
+    expect(inv.hipotetico).toBeNull();
+
+    const vencida = (await pool.query(`SELECT id FROM decisiones WHERE motivo = 'contexto_vencido' AND activo = 'BTC/USD'`)).rows[0].id as string;
+    const venc = (await detalleDecision(vencida, AHORA))!;
+    expect(venc.decision).toMatchObject({ valida: false, motivo: "contexto_vencido", motivos: [{ campo: "contexto_id", motivo: "contexto de hace 16 min, máximo 15" }] });
+    expect(venc.decision.cuerpoCrudo).not.toBeNull();
+  });
+
+  it("comprar sin datos: rechazada por datos no disponibles, válida y sin propuesta", async () => {
+    await conAhora("decisor-decisiones");
+    const d = (await detalleDecision(await idDe(4, "SOL/USD"), AHORA))!;
+    expect(d.decision).toMatchObject({ valida: true, estado: "rechazada", motivo: "datos_no_disponibles", decision: "comprar" });
+    expect(d.propuestaId).toBeNull();
+  });
+
+  it("id desconocido o mal formado: null", async () => {
+    await conAhora("decisor-decisiones");
+    expect(await detalleDecision("no-es-un-uuid", AHORA)).toBeNull();
+    expect(await detalleDecision("00000000-0000-4000-8000-000000000000", AHORA)).toBeNull();
+  });
+
+  it("entrada evitada resuelta: su PnL a nivel y precio de entrada; sin precio: sin_precio_entrada", async () => {
+    await conAhora("decisor-comparacion");
+    const evitadas = (await pool.query(`SELECT d.id, h.resultado FROM decisiones d JOIN resultados_hipoteticos h ON h.decision_id = d.id ORDER BY d.recibida_en`)).rows;
+    expect(evitadas.map((r) => r.resultado)).toEqual(["take_profit", "stop_loss", "take_profit", "sin_precio_entrada"]);
+    expect((await detalleDecision(evitadas[0].id, AHORA))!.hipotetico).toMatchObject({ estado: "resuelto", resultado: "take_profit", pnlANivelUsd: "17.40", huecos: [] });
+    expect((await detalleDecision(evitadas[1].id, AHORA))!.hipotetico).toMatchObject({ estado: "resuelto", resultado: "stop_loss", pnlANivelUsd: "-12.45" });
+    expect((await detalleDecision(evitadas[3].id, AHORA))!.hipotetico).toEqual({ estado: "sin_precio_entrada" });
+  });
+});
+
+describe("proponente en S1, S2, S3 y S6 (REQ-14, REQ-32)", () => {
+  it("S2: cada fila trae su proponente y el filtro los separa", async () => {
+    await conAhora("decisor-decisiones");
+    const todas = await listarPropuestas();
+    expect(todas.total).toBe(4);
+    expect(todas.filas.every((f) => f.proponente === "decisor")).toBe(true);
+    expect((await listarPropuestas({ proponente: "decisor" })).total).toBe(4);
+    expect((await listarPropuestas({ proponente: "ciclo" })).total).toBe(0);
+    await conAhora("ejecutada-y-rechazada");
+    expect((await listarPropuestas({ proponente: "ciclo" })).total).toBeGreaterThan(0);
+    expect((await listarPropuestas({ proponente: "decisor" })).total).toBe(0);
+    expect((await listarPropuestas()).filas.every((f) => f.proponente === "ciclo")).toBe(true);
+  });
+
+  it("S3: la propuesta del decisor trae su decisión y su contexto; la del ciclo, ninguno", async () => {
+    await conAhora("decisor-decisiones");
+    const filas = (await listarPropuestas()).filas;
+    const ejecutada = filas.find((f) => f.decision === "ejecutada" && f.activo === "BTC/USD")!;
+    const d = (await detallePropuesta(ejecutada.id))!;
+    expect(d.proponente).toBe("decisor");
+    expect(d.decisor?.decision).toMatchObject({ decision: "comprar", activo: "BTC/USD", confianza: "0.720" });
+    expect(d.decisor?.contexto?.contenido).toMatchObject({ version: "contexto-v1" });
+    expect(d.reglas).toHaveLength(11);
+
+    const rechazada = (await detallePropuesta(filas.find((f) => f.decision === "rechazada" && f.activo === "BTC/USD")!.id))!;
+    expect(rechazada.reglas.find((r) => r.estado === "incumple")?.regla).toBe("R11");
+
+    await conAhora("ejecutada-y-rechazada");
+    const delCiclo = (await detallePropuesta((await listarPropuestas()).filas[0].id))!;
+    expect(delCiclo).toMatchObject({ proponente: "ciclo", decisor: null });
+  });
+
+  it("S3: el PnL a nivel junto al neto de una entrada del decisor que cerró (REQ-21)", async () => {
+    await conAhora("decisor-comparacion");
+    const cerradas = (await listarPropuestas({ proponente: "decisor" })).filas.filter((f) => f.estado === "cerrada_tp" || f.estado === "cerrada_sl");
+    const salidas = new Map<string, unknown>();
+    for (const f of cerradas) salidas.set(f.estado!, (await detallePropuesta(f.id))!.salida);
+    expect(salidas.get("cerrada_tp")).toMatchObject({ pnlNetoUsd: "17.40", pnlANivelUsd: "17.40", pnlANivelPct: "0.034800" });
+    expect(salidas.get("cerrada_sl")).toMatchObject({ pnlNetoUsd: "-14.93", pnlANivelUsd: "-12.45", pnlANivelPct: "-0.024900" });
+  });
+
+  it("S1: los lotes abiertos llevan su proponente", async () => {
+    await conAhora("decisor-comparacion");
+    const abiertos = (await resumenCartera(AHORA)).lotesAbiertos;
+    expect(abiertos).toHaveLength(1);
+    expect(abiertos[0]).toMatchObject({ proponente: "decisor", activo: "SOL/USD" });
+  });
+
+  it("S6: la entrada del decisor trae su proponente y su confianza, y la del ciclo no", async () => {
+    await conAhora("decisor-comparacion");
+    const btc = (await operacionesPrecio("BTC/USD", "todo", AHORA)).filas;
+    expect(btc.map((f) => [f.entrada.proponente, f.entrada.confianza, f.entrada.cierre])).toEqual([
+      ["decisor", "0.720", null],
+      ["decisor", "0.720", null],
+    ]);
+    await conAhora("precio-operaciones");
+    const ciclo = (await operacionesPrecio("BTC/USD", "todo", new Date())).filas;
+    expect(ciclo.length).toBeGreaterThan(0);
+    expect(ciclo.every((f) => f.entrada.proponente === "ciclo" && f.entrada.confianza === null)).toBe(true);
+  });
+});
+
+describe("señal registrada en S5 (REQ-18, REQ-20, AC-UX-9)", () => {
+  it("el filtro de resultado la encuentra y el detalle trae el modo y el hipotético", async () => {
+    await conAhora("ciclo-solo-registra");
+    const l = await listarEjecuciones({ resultado: "senal_registrada" });
+    expect(l.total).toBe(2);
+    expect(l.filas[0].porActivo["BTC/USD"]).toEqual({ resultado: "senal_registrada" });
+    expect(l.filas[0].porActivo["SOL/USD"]).toEqual({ resultado: "sin_senal" });
+
+    const [nueva, vieja] = l.filas;
+    const pendiente = (await detalleEvaluacion(nueva.id, "BTC/USD", AHORA))!;
+    expect(pendiente.evaluacion.resultado).toBe("senal_registrada");
+    expect(pendiente.modo).toBe("solo_registra");
+    expect(pendiente.propuesta).toBeNull();
+    // Una muestra por minuto menos las de 100 a 90 min antes: un solo hueco, entre la de 101 y la de 89.
+    expect(pendiente.hipotetico).toMatchObject({ estado: "pendiente", huecos: [{ desde: hace(101), hasta: hace(89) }] });
+
+    const resuelta = (await detalleEvaluacion(vieja.id, "BTC/USD", AHORA))!;
+    expect(resuelta.hipotetico).toMatchObject({ estado: "resuelto", resultado: "take_profit", pnlANivelUsd: "17.40" });
+    const sinSenal = (await detalleEvaluacion(vieja.id, "SOL/USD", AHORA))!;
+    expect(sinSenal).toMatchObject({ modo: "solo_registra", hipotetico: null });
   });
 });
