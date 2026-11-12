@@ -63,14 +63,12 @@ describe("AC-26: el vigilante cierra a tiempo con el decisor y el seguimiento tr
     expect(seguimiento.estado).toBe("completada");
     expect(seguimiento.hipoteticos).toBe(150);
 
-    // El límite de 30 por hora se aplica sin ser exacto bajo carrera (punto 5 del Registro de T-2): se guardan al menos 30 de
-    // las 50 y no más de 20 reciben 429; la petición siguiente, ya en secuencia, sí lo recibe siempre.
-    const estados = (await Promise.all(respuestas.map((r) => r.status)));
+    // RNF-5 es exacto bajo carrera: con el contexto previo, se guardan justo 30 en total y las otras 21 de las 50 reciben 429; la siguiente, también.
+    const estados = await Promise.all(respuestas.map((r) => r.status));
     expect(estados.every((s) => [200, 201, 409, 422, 429].includes(s))).toBe(true);
-    const rechazadas = estados.filter((s) => s === 429).length;
-    expect(rechazadas).toBeLessThanOrEqual(20);
+    expect(estados.filter((s) => s === 429)).toHaveLength(21);
     const guardadas = (await e.pool.query("SELECT (SELECT count(*) FROM decisiones)::int + (SELECT count(*) FROM contextos_decisor)::int AS n")).rows[0].n;
-    expect(guardadas).toBeGreaterThanOrEqual(30);
+    expect(guardadas).toBe(30);
     expect((await pedirContexto(e)).status).toBe(429);
   }, 60_000);
 });

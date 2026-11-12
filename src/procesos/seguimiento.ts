@@ -35,6 +35,9 @@ type Pendiente = {
   t0: Date;
   ask: string | null;
   datos: string | null;
+  /** Posición en el orden (t0, origen, ref) para pedir el siguiente lote. */
+  ref: string;
+  t0_texto: string;
 };
 
 const filas = async <T>(db: Pick<NodePgDatabase, "execute">, c: ReturnType<typeof sql>) => (await db.execute(c)).rows as T[];
@@ -126,27 +129,40 @@ async function cerrarRanuras(db: NodePgDatabase, ahora: Date): Promise<number> {
 
 /**
  * REQ-20: resuelve las señales registradas y las entradas evitadas que aún no tienen resultado, de la más vieja a la más
- * nueva. Una fila solo cuando toca un nivel (o no hay precio de entrada); mientras tanto sigue pendiente.
+ * nueva. Una fila solo cuando toca un nivel (o no hay precio de entrada); mientras tanto sigue pendiente. Se avanza por
+ * lotes con un cursor (t0, origen, ref) para que los pendientes sin resolver no tapen a los más nuevos.
  */
 async function resolverHipoteticos(db: NodePgDatabase, ahora: Date): Promise<number> {
-  const pendientes = await filas<Pendiente>(
-    db,
-    sql`SELECT * FROM (
+  let n = 0;
+  let cursor: Pendiente | null = null;
+  for (;;) {
+    const lote: Pendiente[] = await filas<Pendiente>(
+      db,
+      sql`SELECT * FROM (
           SELECT 'senal_registrada' AS origen, e.id AS evaluacion_id, NULL::uuid AS decision_id, e.activo, e.evaluada_en AS t0,
-                 e.foto->'mercado'->'ask'->>'valor' AS ask, NULL::text AS datos
+                 e.foto->'mercado'->'ask'->>'valor' AS ask, NULL::text AS datos, e.id AS ref, e.evaluada_en::text AS t0_texto
           FROM evaluaciones e
           WHERE e.resultado = 'senal_registrada'
             AND NOT EXISTS (SELECT 1 FROM resultados_hipoteticos h WHERE h.evaluacion_id = e.id)
           UNION ALL
           SELECT 'entrada_evitada', NULL::uuid, d.id, d.activo, cx.creado_en,
-                 cx.contenido->'activos'->d.activo->'mercado'->'ask'->>'valor', cx.contenido->'activos'->d.activo->>'datos'
+                 cx.contenido->'activos'->d.activo->'mercado'->'ask'->>'valor', cx.contenido->'activos'->d.activo->>'datos',
+                 d.id, cx.creado_en::text
           FROM decisiones d JOIN contextos_decisor cx ON cx.id = d.contexto_id
           WHERE d.valida AND d.decision = 'no_comprar'
             AND NOT EXISTS (SELECT 1 FROM resultados_hipoteticos h WHERE h.decision_id = d.id)
-        ) x ORDER BY t0, origen LIMIT ${POR_VUELTA}`,
-  );
-  if (pendientes.length === 0) return 0;
+        ) x
+        WHERE ${cursor === null ? sql`true` : sql`(x.t0, x.origen, x.ref) > (${cursor.t0_texto}::timestamptz, ${cursor.origen}, ${cursor.ref}::uuid)`}
+        ORDER BY t0, origen, ref LIMIT ${POR_VUELTA}`,
+    );
+    if (lote.length === 0) return n;
+    n += await resolverLote(db, ahora, lote);
+    if (lote.length < POR_VUELTA) return n;
+    cursor = lote[lote.length - 1];
+  }
+}
 
+async function resolverLote(db: NodePgDatabase, ahora: Date, pendientes: Pendiente[]): Promise<number> {
   // Las muestras de cada activo se leen una vez, desde el t0 más viejo de la vuelta.
   const muestras = new Map<Activo, Intervalo[]>();
   for (const activo of new Set(pendientes.map((p) => p.activo))) {

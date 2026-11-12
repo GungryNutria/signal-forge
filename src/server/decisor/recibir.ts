@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { Activo } from "@/core/activos";
 import { DecisionV1, huellaDecision, propuestaDe } from "@/core/decision";
 import type { Modos } from "@/core/modos";
@@ -15,8 +15,9 @@ import {
 } from "@/server/investigaciones/recibir";
 import { modosActuales, registrarModos } from "@/server/modos";
 import { procesarPropuesta, type CtxPropuesta, type ResultadoPropuesta } from "@/server/propuestas/procesar";
-import { controlarAcceso, huellaToken, json } from "./acceso";
+import { controlarAcceso, huellaToken, json, respuestaLimite } from "./acceso";
 import { crearContexto } from "./contexto";
+import { exigirLugar, LimiteFrecuencia } from "./frecuencia";
 
 const VIGENCIA_CONTEXTO_MS = 15 * 60_000;
 const MAX_CRUDO_JSON_INVALIDO = 2_000;
@@ -74,7 +75,8 @@ export async function recibirContexto(request: Request, deps: DependenciasDeciso
       maxEntradasAbiertasPorActivo: nValida(deps.fuente),
     });
     return json(contexto, 201);
-  } catch {
+  } catch (e) {
+    if (e instanceof LimiteFrecuencia) return respuestaLimite(e.segundos);
     return json({ error: "error_interno" }, 500);
   }
 }
@@ -113,21 +115,24 @@ export async function recibirDecision(request: Request, deps: DependenciasDeciso
     if (modos) await registrarModos(db, modos, ahora);
     // Toda fila guarda hora, ranura y modos (REQ-14, REQ-29); `valida` y `es_original` solo las pone la inserción del paso 11.
     const registrar = async (datos: Rechazo): Promise<string> => {
-      const [fila] = await db
-        .insert(decisiones)
-        .values({
-          recibidaEn: ahora,
-          ranura,
-          estado: "rechazada",
-          valida: false,
-          esOriginal: false,
-          modoConfigurado: modos?.decisor.configurado ?? null,
-          modoEfectivo: modos?.decisor.efectivo ?? null,
-          motivoModo: modos?.decisor.motivo ?? null,
-          ...datos,
-        })
-        .returning({ id: decisiones.id });
-      return fila.id;
+      return db.transaction(async (tx) => {
+        await exigirLugar(tx, ahora);
+        const [fila] = await tx
+          .insert(decisiones)
+          .values({
+            recibidaEn: ahora,
+            ranura,
+            estado: "rechazada",
+            valida: false,
+            esOriginal: false,
+            modoConfigurado: modos?.decisor.configurado ?? null,
+            modoEfectivo: modos?.decisor.efectivo ?? null,
+            motivoModo: modos?.decisor.motivo ?? null,
+            ...datos,
+          })
+          .returning({ id: decisiones.id });
+        return fila.id;
+      });
     };
 
     // 3. tamaño
@@ -172,7 +177,7 @@ export async function recibirDecision(request: Request, deps: DependenciasDeciso
 
     // 8 a 11. Un candado de transacción corto serializa idempotencia, conflicto de ranura y la inserción (RK-7).
     const resultado = await db.transaction(async (tx) => {
-      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('sf:decisor'))`);
+      await exigirLugar(tx, ahora); // toma el candado `sf:decisor` y revisa RNF-5 con todo lo ya guardado
       const [contexto] = await tx.select().from(contextosDecisor).where(eq(contextosDecisor.id, d.contexto_id));
       const rechazar = async (motivo: string, status: number, error: string, motivos?: { campo: string; motivo: string }[]) => {
         const [fila] = await tx
@@ -290,7 +295,8 @@ export async function recibirDecision(request: Request, deps: DependenciasDeciso
       );
     }
     return json(cuerpoDe(fila, propuesta), resultado.tipo === "nueva" ? 201 : 200);
-  } catch {
+  } catch (e) {
+    if (e instanceof LimiteFrecuencia) return respuestaLimite(e.segundos);
     return json({ error: "error_interno" }, 500);
   }
 }

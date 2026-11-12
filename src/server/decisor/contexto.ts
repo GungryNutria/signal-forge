@@ -16,6 +16,7 @@ import type { Barra, DatosMercado, Snapshot } from "@/server/broker/tipos";
 import { ULTIMO_EVENTO } from "@/server/cartera";
 import type { Db } from "@/server/db/cliente";
 import { contextosDecisor } from "@/server/db/esquema";
+import { exigirLugar } from "./frecuencia";
 import { carteraParaFoto } from "@/server/foto";
 
 const MIN = 60_000;
@@ -178,9 +179,12 @@ export async function crearContexto(deps: {
     },
     activos,
   });
-  await db
-    .insert(contextosDecisor)
-    .values({ id: contexto.id, creadoEn: T, tokenHuella: deps.tokenHuella, version: contexto.version, contenido: contexto });
+  await db.transaction(async (tx) => {
+    await exigirLugar(tx, T);
+    await tx
+      .insert(contextosDecisor)
+      .values({ id: contexto.id, creadoEn: T, tokenHuella: deps.tokenHuella, version: contexto.version, contenido: contexto });
+  });
   return contexto;
 }
 

@@ -9,7 +9,7 @@ export const VENTANA_MIN = 60;
  * de la ventana en `contextos_decisor` y `decisiones`. Devuelve los segundos hasta que la más vieja salga de la ventana
  * si ya se alcanzó el límite, o `null` si hay lugar.
  */
-export async function segundosParaPoderEnviar(db: Db, ahora: Date): Promise<number | null> {
+export async function segundosParaPoderEnviar(db: Pick<Db, "execute">, ahora: Date): Promise<number | null> {
   const desde = new Date(ahora.getTime() - VENTANA_MIN * 60_000).toISOString();
   const [{ n, primera }] = (
     await db.execute(
@@ -23,4 +23,21 @@ export async function segundosParaPoderEnviar(db: Db, ahora: Date): Promise<numb
   if (n < MAX_PETICIONES) return null;
   const venceEnS = primera ? VENTANA_MIN * 60 - (ahora.getTime() - new Date(primera).getTime()) / 1000 : 60;
   return Math.max(1, Math.ceil(venceEnS));
+}
+
+/** Se lanza cuando el límite se alcanzó entre la revisión de entrada y el guardado (la carrera de varias peticiones). */
+export class LimiteFrecuencia extends Error {
+  constructor(readonly segundos: number) {
+    super("limite_frecuencia");
+  }
+}
+
+/**
+ * Revisión definitiva del límite: se llama dentro de la transacción que guarda la fila, tras tomar el candado
+ * `sf:decisor`, así que el conteo ve todo lo ya guardado y una ráfaga en paralelo no puede pasarse de 30.
+ */
+export async function exigirLugar(tx: Pick<Db, "execute">, ahora: Date): Promise<void> {
+  await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('sf:decisor'))`);
+  const espera = await segundosParaPoderEnviar(tx, ahora);
+  if (espera !== null) throw new LimiteFrecuencia(espera);
 }

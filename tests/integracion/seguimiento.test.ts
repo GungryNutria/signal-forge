@@ -36,6 +36,17 @@ const registros = async () =>
   ).map((r) => `${r.t}:${r.h}`);
 
 describe("resultados hipotéticos (AC-16)", () => {
+  it("con más pendientes que un lote, los más nuevos también se resuelven en la misma corrida", async () => {
+    // 210 señales viejas de SOL sin muestras (siguen pendientes) y 30 más nuevas de BTC que sí tocan el take profit.
+    for (let i = 0; i < 210; i++) await sembrarSenal(pool, { activo: "SOL/USD", t0: new Date(T("08:00").getTime() + i * 10_000), ask: 200 });
+    for (let i = 0; i < 30; i++) await sembrarSenal(pool, { activo: "BTC/USD", t0: new Date(T("12:00").getTime() + i * 10_000), ask: 100_000 });
+    await sembrarMuestras(pool, "BTC/USD", T("12:10"), [100_000, 104_000]);
+
+    expect(await correr(T("14:00"))).toMatchObject({ estado: "completada", hipoteticos: 30 });
+    expect(await q("SELECT resultado, count(*)::int AS n FROM resultados_hipoteticos GROUP BY resultado")).toEqual([{ resultado: "take_profit", n: 30 }]);
+    expect(await correr(T("14:10"))).toMatchObject({ hipoteticos: 0 }); // nada se resuelve dos veces
+  });
+
   it("resuelve señales registradas y entradas evitadas con muestras sembradas, deja pendiente lo que no toca un nivel y no cambia ningún registro", async () => {
     const a = await sembrarSenal(pool, { activo: "BTC/USD", t0: T("12:00"), ask: 100_000 });
     const b = await sembrarSenal(pool, { activo: "SOL/USD", t0: T("12:00"), ask: 200 });

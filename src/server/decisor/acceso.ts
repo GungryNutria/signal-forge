@@ -1,12 +1,16 @@
 import { identificarToken } from "@/server/investigaciones/auth";
 import { registrarAuthFallida } from "@/server/investigaciones/recibir";
 import type { Db } from "@/server/db/cliente";
-import { segundosParaPoderEnviar } from "./frecuencia";
+import { type LimiteFrecuencia, segundosParaPoderEnviar } from "./frecuencia";
 
 export const json = (cuerpo: unknown, status: number, headers?: HeadersInit) =>
   Response.json(cuerpo, { status, headers });
 
 /** Primeros 16 hex del hash del token del decisor: a qué token se entregó un contexto (REQ-9). */
+/** El 429 de RNF-5; lo comparten la revisión de entrada y la definitiva (dentro de la transacción de guardado). */
+export const respuestaLimite = (segundos: LimiteFrecuencia["segundos"]) =>
+  json({ error: "limite_frecuencia" }, 429, { "Retry-After": String(segundos) });
+
 export const huellaToken = (hashDecisor: string | undefined) => (hashDecisor ?? "").slice(0, 16);
 
 /**
@@ -26,6 +30,6 @@ export async function controlarAcceso(
   }
   if (rol === "investigador") return json({ error: "prohibido" }, 403);
   const espera = await segundosParaPoderEnviar(db, ahora);
-  if (espera !== null) return json({ error: "limite_frecuencia" }, 429, { "Retry-After": String(espera) });
+  if (espera !== null) return respuestaLimite(espera);
   return null;
 }

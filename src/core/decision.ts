@@ -8,7 +8,7 @@ import { TENDENCIA_SMA_V1 } from "./regla/tendencia-sma-v1";
 export const DecisionV1 = z.strictObject({
   clave_idempotencia: z.string().min(1).max(128).regex(/^[A-Za-z0-9:/_.\-]+$/),
   ejecucion_id: z.string().min(1).max(64),
-  version_instrucciones: z.string().regex(/^decisor-v\d+@[A-Za-z0-9._\-]{1,48}$/),
+  version_instrucciones: z.string().max(64).regex(/^decisor-v\d+@[A-Za-z0-9._\-]{1,48}$/),
   contexto_id: z.uuid(),
   activo: z.enum(ACTIVOS),
   decision: z.enum(["comprar", "no_comprar"]),

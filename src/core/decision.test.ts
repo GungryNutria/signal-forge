@@ -30,10 +30,17 @@ describe("DecisionV1 (REQ-7, REQ-12, AC-5)", () => {
     ["sin clave", { clave_idempotencia: undefined }],
     ["clave con caracteres fuera del patrón", { clave_idempotencia: "dec 1" }],
     ["versión sin modelo", { version_instrucciones: "decisor-v1" }],
+    ["versión de más de 64 caracteres (no cabe en version_regla)", { version_instrucciones: `decisor-v${"1".repeat(10)}@${"a".repeat(48)}` }],
     ["contexto que no es uuid", { contexto_id: "abc" }],
     ["confianza como texto", { confianza: "0.7" }],
   ])("rechaza %s", (_nombre, cambio) => {
     expect(DecisionV1.safeParse({ ...VALIDA, ...cambio }).success).toBe(false);
+  });
+
+  it("acepta una versión de exactamente 64 caracteres", () => {
+    const version = `decisor-v${"1".repeat(6)}@${"a".repeat(48)}`;
+    expect(version).toHaveLength(64);
+    expect(DecisionV1.safeParse({ ...VALIDA, version_instrucciones: version }).success).toBe(true);
   });
 
   it("recorta el razonamiento (trim) y acepta el máximo exacto", () => {
