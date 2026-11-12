@@ -3,7 +3,7 @@ import type { Pool } from "pg";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ejecutarVigilante, type DepsVigilante } from "@/procesos/vigilante";
 import { DatosSimulados } from "@/server/broker/simulado";
-import type { Snapshot } from "@/server/broker/tipos";
+import { ErrorBroker, type Snapshot } from "@/server/broker/tipos";
 import { procesarPropuesta } from "@/server/propuestas/procesar";
 import { reiniciarBase } from "./arnes";
 import { AHORA, URL_REAL, compra, crearEntorno } from "./ayudas";
@@ -122,6 +122,70 @@ describe("protecciones (AC-16, REQ-17, REQ-18)", () => {
     await ejecutarVigilante(deps());
     expect(ventas()).toHaveLength(1);
     expect((await q("SELECT motivo_cierre FROM cierres_lote"))[0].motivo_cierre).toBe("stop_loss");
+  });
+});
+
+describe("salida limitada a la cantidad disponible del broker", () => {
+  const NETA = "0.0049875000";
+
+  it("si qty_available es menor que cantidad_neta vende solo lo disponible y cierra el lote", async () => {
+    await abrir();
+    ponerBid(97_000);
+    e.broker.disponible = { "BTC/USD": "0.0049874" }; // 1e-7 menos: la comisión en especie del broker superó al modelo
+    const r = await ejecutarVigilante(deps());
+    expect(r).toMatchObject({ estado: "completada", ventas: 1, cierres: 1 });
+    expect(ventas()).toHaveLength(1);
+    expect(ventas()[0].arg).toMatchObject({ cantidad: "0.0049874" });
+    expect((await q("SELECT cantidad::text FROM ordenes WHERE tramo = 'salida'"))[0].cantidad).toBe("0.0049874000");
+    expect((await q("SELECT estado FROM v_lotes"))[0].estado).toBe("cerrado");
+  });
+
+  it("si qty_available alcanza, sigue vendiendo cantidad_neta", async () => {
+    await abrir();
+    ponerBid(97_000);
+    e.broker.disponible = { "BTC/USD": "0.005" };
+    await ejecutarVigilante(deps());
+    expect(ventas()[0].arg).toMatchObject({ cantidad: NETA });
+  });
+
+  it("sin cantidad disponible no envía ni crea orden, y lo deja en el log", async () => {
+    await abrir();
+    ponerBid(97_000);
+    e.broker.disponible = { "BTC/USD": "0" };
+    const r = await ejecutarVigilante(deps());
+    expect(r).toMatchObject({ ventas: 0, cierres: 0 });
+    expect(ventas()).toHaveLength(0);
+    expect(await q("SELECT 1 FROM ordenes WHERE tramo = 'salida'")).toHaveLength(0);
+    expect(log.some((l) => l.includes('"evento":"venta_sin_saldo"'))).toBe(true);
+  });
+
+  it("si no puede leer la posición no vende y deja error_vigilante", async () => {
+    await abrir();
+    ponerBid(97_000);
+    e.broker.llenado = "total";
+    const original = e.broker.cantidadDisponible.bind(e.broker);
+    e.broker.cantidadDisponible = async (s) => {
+      await original(s);
+      throw new ErrorBroker("Alpaca respondió 503", "5xx", 503);
+    };
+    const r = await ejecutarVigilante(deps());
+    expect(r.estado).toBe("error");
+    expect(ventas()).toHaveLength(0);
+    expect(await q("SELECT 1 FROM eventos WHERE tipo = 'error_vigilante'")).toHaveLength(1);
+  });
+
+  it("un rechazo de la salida no es silencioso: log y error_vigilante con el estado HTTP y el mensaje, sin secretos", async () => {
+    await abrir();
+    ponerBid(97_000);
+    e.broker.programarEnvio({ tipo: "rechazada", status: 403, cuerpo: { code: 40310000, message: `insufficient balance ${SECRETO}` } });
+    const r = await ejecutarVigilante(deps());
+    expect(r.estado).toBe("error");
+    const [ev] = await q("SELECT detalle FROM eventos WHERE tipo = 'error_vigilante'");
+    expect(ev.detalle.error).toContain("403");
+    expect(ev.detalle.error).toContain("insufficient balance");
+    expect(JSON.stringify(ev)).not.toContain(SECRETO);
+    expect(log.join(" ")).not.toContain(SECRETO);
+    expect(log.some((l) => l.includes("insufficient balance"))).toBe(true);
   });
 });
 

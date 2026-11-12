@@ -10,6 +10,7 @@ import type { DependenciasDecisor } from "./recibir";
 const brokerProhibido: Broker = {
   enviarOrden: () => Promise.reject(new Error("broker no disponible: APCA_API_BASE_URL no es la de paper")),
   consultarOrden: () => Promise.reject(new Error("broker no disponible: APCA_API_BASE_URL no es la de paper")),
+  cantidadDisponible: () => Promise.reject(new Error("broker no disponible: APCA_API_BASE_URL no es la de paper")),
 };
 
 /**

@@ -26,12 +26,14 @@ type OrdenSim = { peticion: PeticionOrden; orden: OrdenBroker };
  * como `aceptada`, igual que `AlpacaBroker` tras su 422.
  */
 export class BrokerSimulado implements Broker {
-  readonly llamadas: { metodo: "enviarOrden" | "consultarOrden"; arg: PeticionOrden | string }[] = [];
+  readonly llamadas: { metodo: "enviarOrden" | "consultarOrden" | "cantidadDisponible"; arg: PeticionOrden | string }[] = [];
   precios: Partial<Record<Simbolo, number>> = {};
   /** `total`, `parcial` (la mitad, `status: partially_filled`) o `ninguno` (queda `accepted`). */
   llenado: "total" | "parcial" | "ninguno" = "total";
   /** Si es `true`, todo falla como una caída de red. */
   caido = false;
+  /** `qty_available` por activo. Sin fijar, el simulado no limita la venta (valor enorme). */
+  disponible: Partial<Record<Simbolo, string>> = {};
 
   private readonly ordenes = new Map<string, OrdenSim>();
   private readonly guionesEnvio: GuionEnvio[] = [];
@@ -79,6 +81,12 @@ export class BrokerSimulado implements Broker {
     if (guion instanceof ErrorBroker) throw guion;
     if (guion === "no_existe") return "no_existe";
     return this.ordenes.get(clientOrderId)?.orden ?? "no_existe";
+  }
+
+  async cantidadDisponible(simbolo: Simbolo): Promise<string> {
+    this.llamadas.push({ metodo: "cantidadDisponible", arg: simbolo });
+    if (this.caido) throw new ErrorBroker("Error de red", "red");
+    return this.disponible[simbolo] ?? "1000000000";
   }
 
   private registrar(p: PeticionOrden): OrdenBroker {
