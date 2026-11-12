@@ -137,6 +137,8 @@ for (const m of MEDIDAS) {
         await page.goto("/ejecuciones?vista=decisor&resultado=invalida");
         await page.getByRole("link", { name: /^BTC\/USD: Inválida \(Contexto vencido\)/ }).first().click();
         await expect(page.getByText("contexto de hace 16 min, máximo 15")).toBeVisible();
+        await expect(page.getByText("Contexto vencido: contexto de hace 16 min, máximo 15")).toBeVisible();
+        await expect(page.getByRole("heading", { level: 2, name: "Motivo del sistema" }).locator("xpath=..")).not.toContainText("contexto_id");
         await expect(page.getByRole("heading", { level: 2, name: "Motivo del sistema" }).locator("xpath=..")).toContainText("Contexto vencido");
         await expect(page.getByText("Contenido recibido (texto del agente, literal)")).toBeVisible();
         await sinScroll(page);
@@ -150,6 +152,21 @@ for (const m of MEDIDAS) {
         await expect(page.getByText("Decisión inválida").first()).toBeVisible();
         await expect(page.getByText('{"decision":"comprar","confianza":7}')).toBeVisible();
         await expect(page.getByText("Too big: expected number to be <=1")).toBeVisible();
+      });
+
+      test("AC-UX-12: una decisión inválida sin activo se ve y se abre desde su ranura, conservando los filtros", async ({ page }) => {
+        sembrar("decisor-inyeccion");
+        await page.goto("/ejecuciones?vista=decisor&estado=invalida");
+        const linea = page.getByText("Envío inválido sin activo", { exact: true }).locator("visible=true");
+        await expect(linea).toHaveCount(1);
+        const enlace = page.getByRole("link", { name: /^Envío inválido sin activo, ranura de las .*Decisión inválida\. Ver detalle$/ }).locator("visible=true");
+        await expect(enlace).toContainText("Inválida (Decisión inválida)");
+        expect(await enlace.getAttribute("href")).toMatch(/^\/ejecuciones\/decisiones\/[0-9a-f-]{36}\?v=/);
+        await enlace.click();
+        await expect(page).toHaveURL(/\/ejecuciones\/decisiones\/[0-9a-f-]{36}\?v=/);
+        await expect(page.getByText("Contenido recibido (texto del agente, literal)")).toBeVisible();
+        await page.locator("main").getByRole("link", { name: "Ejecuciones" }).click();
+        await expect(page).toHaveURL(/vista=decisor&estado=invalida/);
       });
 
       test("AC-UX-12: comprar con propuesta lleva a su S3, desde la lista y desde la dirección", async ({ page }) => {
@@ -257,6 +274,10 @@ for (const m of MEDIDAS) {
         const celdas = (await tabla.locator("td").allInnerTexts()).filter((x) => x.trim() !== "").map((x) => Number(x.trim().split(/\s/)[0]));
         expect(celdas).toEqual([k.senalCompro, k.senalNoCompro, k.sinSenalCompro, k.sinSenalNoCompro]);
         await expect(page.getByText(`${celdas.reduce((a, b) => a + b, 0)} decisiones en el periodo`)).toBeVisible();
+        // AC-UX-16: las celdas de desacuerdo no usan "evitadas", que es la métrica de arriba.
+        await expect(tabla).toContainText("la regla entra, el decisor no");
+        await expect(tabla).toContainText("el decisor entra, la regla no");
+        await expect(tabla).not.toContainText("evitadas por el decisor");
         await sinScroll(page);
         await capturar(page, m.ancho, "s4_comparacion");
       });

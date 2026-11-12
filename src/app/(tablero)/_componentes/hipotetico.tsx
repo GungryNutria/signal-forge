@@ -1,5 +1,5 @@
 import type { HipoteticoVista } from "@/server/consultas/tipos";
-import { hora, horaCorta, momento, usdConSigno, pct } from "../_lib/formato";
+import { hora, horaCorta, momento, usd, usdConSigno, pct } from "../_lib/formato";
 import { Chip } from "./chip";
 import { Dato, Datos } from "./datos";
 import { Tarjeta, TituloBloque } from "./tarjeta";
@@ -39,7 +39,7 @@ export function ResultadoHipotetico({ h, origen }: { h: HipoteticoVista; origen:
         <p className="text-sm">{SIN_PRECIO}</p>
       ) : (
         <Datos>
-          <Dato etiqueta="Precio de entrada (hipotético)">{Number(h.precioEntrada).toLocaleString("es-MX", { maximumFractionDigits: 8 })} USD</Dato>
+          <Dato etiqueta="Precio de entrada (hipotético)">{usd(h.precioEntrada)}</Dato>
           {h.estado === "resuelto" ? (
             <>
               <Dato etiqueta="Tocó el nivel (Torreón)">{momento(h.tocadoEn)}</Dato>

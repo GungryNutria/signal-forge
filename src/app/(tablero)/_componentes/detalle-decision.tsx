@@ -37,7 +37,13 @@ function MotivoDelSistema({ d }: { d: DecisionVista }) {
             <ul className="text-sm">
               {registrado.map((m, i) => (
                 <li key={i} className="[overflow-wrap:anywhere]">
-                  <span className="font-mono text-[13px]">{m.campo.slice(0, 80)}</span>: {m.motivo}
+                  {d.motivo === "contexto_vencido" ? (
+                    <>Contexto vencido: {m.motivo}</>
+                  ) : (
+                    <>
+                      <span className="font-mono text-[13px]">{m.campo.slice(0, 80)}</span>: {m.motivo}
+                    </>
+                  )}
                 </li>
               ))}
             </ul>

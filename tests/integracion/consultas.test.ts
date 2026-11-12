@@ -693,6 +693,16 @@ describe("historial de ranuras (REQ-26, REQ-28, AC-21, AC-23, AC-30)", () => {
     expect(todas.find((f) => k(f) === 6)).toMatchObject({ modo: "ejecuta", versionInstrucciones: expect.stringMatching(/^decisor-v1@/) });
   });
 
+  it("un envío inválido sin activo sale en `sinActivo` de su ranura y en ninguna otra (AC-UX-12)", async () => {
+    await conAhora("decisor-inyeccion");
+    const filas = (await listarRanuras({}, AHORA)).filas;
+    const [{ id }] = (await pool.query<{ id: string }>("SELECT id FROM decisiones WHERE activo IS NULL")).rows;
+    const con = filas.filter((f) => f.sinActivo.length > 0);
+    expect(con.map(k)).toEqual([5]);
+    expect(con[0].sinActivo).toEqual([{ decisionId: id, motivo: "decision_invalida" }]);
+    expect(filas.filter((f) => k(f) !== 5).every((f) => f.sinActivo.length === 0)).toBe(true);
+  });
+
   it("filtros de estado y de resultado se combinan; paginación por cursor", async () => {
     await conAhora("decisor-ranuras");
     expect((await listarRanuras({ estado: "sin_llegar" }, AHORA)).total).toBe(2);
