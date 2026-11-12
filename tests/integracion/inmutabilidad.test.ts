@@ -2,7 +2,7 @@ import type { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { abrirPool } from "./arnes";
 
-// AC-17 (parte): UPDATE, DELETE y TRUNCATE fallan en las 10 tablas de registro;
+// AC-17 y AC-24 (parte): UPDATE, DELETE y TRUNCATE fallan en las 15 tablas de registro;
 // lecturas_mercado (caché) admite upsert.
 
 // Tabla -> una columna cualquiera para el UPDATE.
@@ -17,6 +17,11 @@ const TABLAS_DE_REGISTRO: Record<string, string> = {
   cierres_lote: "motivo_cierre",
   investigaciones: "estado",
   eventos: "tipo",
+  contextos_decisor: "version",
+  decisiones: "estado",
+  muestras_precio: "activo",
+  resultados_hipoteticos: "resultado",
+  ranuras_decisor: "estado",
 };
 
 const ID = {
@@ -27,6 +32,7 @@ const ID = {
   ordenEntrada: "00000000-0000-4000-8000-000000000005",
   lote: "00000000-0000-4000-8000-000000000006",
   ordenSalida: "00000000-0000-4000-8000-000000000007",
+  contexto: "00000000-0000-4000-8000-000000000008",
 };
 
 async function sembrarUnaFilaPorTabla(pool: Pool) {
@@ -81,6 +87,20 @@ async function sembrarUnaFilaPorTabla(pool: Pool) {
     [ID.lote, ID.ordenSalida],
   );
   await q("INSERT INTO eventos (tipo, detalle) VALUES ('error_ciclo', '{}')");
+  await q(
+    "INSERT INTO contextos_decisor (id, token_huella, version, contenido) VALUES ($1, repeat('a', 16), 'contexto-v1', '{}')",
+    [ID.contexto],
+  );
+  await q(
+    "INSERT INTO decisiones (ranura, estado, motivo, valida, es_original) VALUES (now(), 'rechazada', 'json_invalido', false, false)",
+  );
+  await q("INSERT INTO muestras_precio (activo, fuente_ts, bid, ask, leido_en) VALUES ('BTC/USD', now(), 100, 101, now())");
+  await q(
+    `INSERT INTO resultados_hipoteticos (origen, evaluacion_id, activo, t0, precio_entrada, nocional_usd, comision_bps, resultado, version)
+     VALUES ('senal_registrada', $1, 'BTC/USD', now(), 100, 500, 25, 'sin_precio_entrada', 'hipotetico-v1')`,
+    [ID.evaluacion],
+  );
+  await q("INSERT INTO ranuras_decisor (ranura, estado, detalle) VALUES (now(), 'sin_llegar', '{}')");
 }
 
 describe("inmutabilidad del registro (AC-17)", () => {

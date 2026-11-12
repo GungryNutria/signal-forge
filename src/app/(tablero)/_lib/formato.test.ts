@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  lineaDeModos,
+  motivoDecision,
+  rangoRanura,
   confianza,
   cripto,
   desgloseR11,
@@ -74,5 +77,20 @@ describe("formato es-MX", () => {
     expect(desgloseR11("4", "2")).toBe("3 abiertas + esta propuesta = 4 · límite 2");
     expect(nombreCorto("R11")).toBe("R11 entradas abiertas");
     expect(nombreCorto("R8")).toBe("R8 pausa manual");
+  });
+});
+
+describe("vocabulario del decisor (spec 004)", () => {
+  const m = (efectivo: "ejecuta" | "solo_registra" | "apagado", motivo: string | null = null) => ({ efectivo, motivo });
+  it("la línea de modos de la banda", () => {
+    expect(lineaDeModos(m("solo_registra"), m("ejecuta"))).toBe("Ejecuta: Decisor · Ciclo: Solo registra");
+    expect(lineaDeModos(m("ejecuta"), m("apagado"))).toBe("Ejecuta: Ciclo · Decisor: Apagado");
+    expect(lineaDeModos(m("solo_registra", "dos_proponentes_en_ejecuta"), m("solo_registra", "dos_proponentes_en_ejecuta"))).toBe("Ejecuta: ninguno");
+    expect(lineaDeModos(m("solo_registra"), m("solo_registra", "r11_no_vigente"))).toBe("Ejecuta: ninguno · Ciclo: Solo registra · Decisor: Solo registra");
+  });
+  it("motivos del sistema y rango de la ranura", () => {
+    expect(motivoDecision("contexto_vencido")).toBe("Contexto vencido");
+    expect(motivoDecision("conflicto_ranura")).toBe("Conflicto");
+    expect(rangoRanura("2026-11-12T19:45:00.000Z")).toBe("13:45 a 14:45 (UTC−6)");
   });
 });

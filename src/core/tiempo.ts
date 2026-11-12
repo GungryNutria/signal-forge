@@ -32,6 +32,16 @@ export function proximaInvestigacion(ahora: Date): Date {
   return enLaHora.getTime() > ahora.getTime() ? enLaHora : new Date(enLaHora.getTime() + HORA);
 }
 
+/** Ranura del decisor: [HH:45, HH+1:45) en UTC (REQ-8). */
+export function ranuraDecisor(d: Date): Date {
+  return new Date(Math.floor((d.getTime() - 45 * MIN) / HORA) * HORA + 45 * MIN);
+}
+
+/** Próxima ranura del decisor, estrictamente posterior a `ahora`. */
+export function proximaRanuraDecisor(ahora: Date): Date {
+  return new Date(ranuraDecisor(ahora).getTime() + HORA);
+}
+
 /** Minutos enteros entre dos momentos (hacia abajo). */
 export function minutosEntre(desde: Date, hasta: Date): number {
   return Math.floor((hasta.getTime() - desde.getTime()) / MIN);

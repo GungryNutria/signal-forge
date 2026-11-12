@@ -1,11 +1,18 @@
 import type { Activo } from "@/core/activos";
+import type { Modo } from "@/core/modos";
 
 // Contrato del read model del dashboard (plan.md §Contratos). Importes y cantidades como string decimal;
 // fechas como ISO UTC. Solo tipos: sin `server-only`.
 
 export type { Activo };
 export type Decision = "ejecutada" | "rechazada" | "conflicto" | "error";
-export type ResultadoEvaluacion = "sin_senal" | "propuesta" | "datos_no_disponibles" | "error";
+export type Proponente = "ciclo" | "decisor";
+export type ModoVista = {
+  configurado: Modo;
+  efectivo: Modo;
+  motivo: "dos_proponentes_en_ejecuta" | "r11_no_vigente" | null;
+};
+export type ResultadoEvaluacion = "sin_senal" | "propuesta" | "datos_no_disponibles" | "error" | "senal_registrada";
 export type EstadoEjecucion = "completada" | "error" | "omitida_solapamiento" | "en_curso";
 export type EstadoOperacion =
   | "pendiente_llenado"
@@ -42,6 +49,14 @@ export type InvestigacionVista = {
   versionInstrucciones: string;
 };
 
+export type ResultadoDecisorActivo =
+  | { tipo: "comprar"; decisionId: string; propuesta: null | { id: string; decision: Decision; reglaPrincipal?: string } } // null = solo registro
+  | { tipo: "comprar_rechazada"; decisionId: string; motivo: "datos_no_disponibles" }
+  | { tipo: "no_comprar"; decisionId: string }
+  | { tipo: "invalida"; decisionId: string; motivo: string } // última no válida de la ranura
+  | { tipo: "sin_decision" };
+export type EstadoRanura = "completa" | "parcial" | "invalida" | "sin_llegar" | "apagado";
+
 export type EstadoSistema = {
   /** `pausa_manual` gana si ambas pausas están activas; `pausaAutomatica` se rellena igual. */
   modo: "operando" | "pausa_manual" | "pausa_automatica";
@@ -60,8 +75,25 @@ export type EstadoSistema = {
     versionRegla: string;
     porActivo: PorActivo;
   };
-  /** Inicio de la última ejecución con más de 45 min (REQ-44); null si no hay ejecuciones. */
-  cicloDetenido: null | { desde: string };
+  /** `null` = variables de modo inválidas (error del bloque). */
+  modos: null | { ciclo: ModoVista; decisor: ModoVista };
+  /** Inicio de la última ejecución con más de 45 min (REQ-44); null si no hay ejecuciones. También `null` con el ciclo apagado. */
+  cicloDetenido: null | { desde: string; severidad: "neg" | "warn" };
+  decisor: {
+    /** `null` = nunca activado. */
+    activacion: string | null;
+    proximaRanura: string;
+    ultimaRanura: null | {
+      ranura: string;
+      fin: string;
+      estado: EstadoRanura;
+      enCurso: boolean;
+      modo: Modo | null;
+      porActivo: Record<Activo, ResultadoDecisorActivo>;
+    };
+    /** REQ-27. Vacío con el decisor apagado. `desde` null = "desde su activación". */
+    alertas: { activo: Activo; desde: string | null; ultimaValida: string | null; severidad: "neg" | "warn" }[];
+  };
   /** `null` = ninguna aceptada (también es alerta). */
   investigacionPorActivo: Record<
     Activo,
@@ -78,6 +110,7 @@ export type EstadoSistema = {
 };
 
 export type LoteAbierto = {
+  proponente: Proponente;
   loteId: string;
   propuestaId: string;
   activo: string;
@@ -113,6 +146,7 @@ export type ResumenCartera = {
 export type ReglaPrincipal = { regla: string; observado: string; limite: string };
 
 export type FiltroPropuestas = {
+  proponente?: Proponente;
   activo?: Activo;
   decision?: Decision;
   estado?: EstadoOperacion;
@@ -120,6 +154,7 @@ export type FiltroPropuestas = {
   limite?: 50;
 };
 export type FilaPropuesta = {
+  proponente: Proponente;
   id: string;
   recibidaEn: string;
   activo: string | null;
@@ -171,7 +206,8 @@ export type DetallePropuesta = {
   decision: Decision;
   motivo: string;
   estado: EstadoOperacion | null;
-  proponente: string | null;
+  proponente: Proponente;
+  decisor: null | { decision: DecisionVista; contexto: ContextoVista | null };
   claveIdempotencia: string | null;
   versionRegla: string | null;
   /** `justificacion` de la regla: `{ entradas, resultado }`. */
@@ -183,6 +219,9 @@ export type DetallePropuesta = {
   /** REQ-19. Solo si el lote se cerró; `null` en abiertas, pendientes, rechazadas por el broker y desconocidas. */
   salida: null | {
     motivo: "stop_loss" | "take_profit";
+    /** REQ-21: PnL si la salida se hubiera llenado exactamente en el nivel. */
+    pnlANivelUsd: string;
+    pnlANivelPct: string;
     /** Precio del nivel tocado (`stop_loss` o `take_profit` del lote). */
     nivel: string;
     /** Bid que disparó y hora ISO UTC de su quote; `null` = el cierre es anterior a esta medición. */
@@ -265,6 +304,10 @@ export type DetalleEvaluacion = {
   foto: unknown;
   propuesta: null | { id: string; decision: Decision };
   investigacion: InvestigacionVista | null;
+  /** Modo del ciclo al evaluar; `null` = anterior a los modos. */
+  modo: Modo | null;
+  /** Solo en `senal_registrada`. */
+  hipotetico: HipoteticoVista | null;
 };
 
 export type Metricas = {
@@ -329,6 +372,9 @@ export type OperacionGrafica = {
   /** #n entre las abiertas del activo (1 = la más antigua); null si está cerrada. */
   numero: number | null;
   entrada: {
+    proponente: Proponente;
+    /** Confianza de la decisión (REQ-32); `null` en las entradas del ciclo. */
+    confianza: string | null;
     t: string; // lotes.abierto_en
     precio: string;
     nocionalUsd: string;
@@ -359,4 +405,115 @@ export type OperacionesPrecio = {
   filas: OperacionGrafica[];
   /** Para el selector (REQ-16, Q-4). */
   abiertasPorActivo: Record<Activo, number>;
+};
+
+// ───────────────────────────── Decisor (spec 004) ─────────────────────────────
+
+export type FiltroRanuras = {
+  activo?: Activo;
+  estado?: EstadoRanura;
+  resultado?: ResultadoDecisorActivo["tipo"];
+  antes?: string;
+  limite?: 50;
+};
+export type FilaRanura = {
+  ranura: string;
+  fin: string;
+  estado: EstadoRanura;
+  enCurso: boolean;
+  modo: Modo | null;
+  versionInstrucciones: string | null;
+  porActivo: Record<Activo, ResultadoDecisorActivo>;
+  /** Envíos inválidos sin activo (no caben en `porActivo`), en orden de llegada. */
+  sinActivo: { decisionId: string; motivo: string }[];
+};
+/** `total` sin las ranuras "apagado". */
+export type PorcentajeRanuras = { completas: number; total: number; pct: string | null };
+
+export type DecisionVista = {
+  id: string;
+  recibidaEn: string;
+  ranura: string;
+  activo: Activo | null;
+  decision: "comprar" | "no_comprar" | null;
+  confianza: string | null;
+  razonamiento: string | null;
+  versionInstrucciones: string | null;
+  ejecucionDecisor: string | null;
+  modoEfectivo: Modo | null;
+  motivoModo: string | null;
+  estado: "aceptada" | "rechazada";
+  motivo: string | null;
+  motivos: { campo: string; motivo: string }[] | null;
+  valida: boolean;
+  /** Solo en no válidas. */
+  cuerpoCrudo: string | null;
+};
+/** `contenido` es el `contexto-v1` tal como se guardó. */
+export type ContextoVista = { id: string; creadoEn: string; antiguedadAlRecibirMin: number; contenido: unknown };
+export type HipoteticoVista =
+  | {
+      estado: "resuelto";
+      resultado: "take_profit" | "stop_loss";
+      tocadoEn: string;
+      precioEntrada: string;
+      pnlANivelUsd: string;
+      pnlANivelPct: string;
+      huecos: { desde: string; hasta: string }[];
+    }
+  | { estado: "pendiente"; precioEntrada: string; huecos: { desde: string; hasta: string }[] }
+  | { estado: "sin_precio_entrada" };
+export type DetalleDecision = {
+  decision: DecisionVista;
+  contexto: ContextoVista | null;
+  hipotetico: HipoteticoVista | null;
+  /** Con `propuestaId` la UI va directo a S3 (AC-UX-12). */
+  propuestaId: string | null;
+};
+
+export type FiltroComparacion = { activo?: Activo; periodo?: "activacion" | "7d" | "30d" };
+/** Número de casos de cada cifra. */
+export type Caso = { n: number };
+/** `null` = "—". */
+export type Tasa = null | { pct: string; aciertos: number; cerradas: number };
+export type Comparacion = {
+  /** Periodo real. */
+  activacion: string | null;
+  desde: string | null;
+  hasta: string;
+  topeN: number;
+  /** Estado "sin serie de la regla". */
+  cicloApagadoDesde: string | null;
+  decisor: {
+    entradas: number;
+    cerradas: number;
+    tasa: Tasa;
+    pnlANivelUsd: string;
+    pnlNetoRealUsd: string;
+    evitadas: { total: number; stopLoss: number; takeProfit: number; pendientes: number; sinPrecio: number };
+    /** Por regla principal (D-11). */
+    rechazadasPorRegla: { regla: string; n: number }[];
+  };
+  /** Todo hipotético. */
+  regla: {
+    senales: number;
+    cuentan: number;
+    bloqueadasPorTope: number;
+    cerradas: number;
+    tasa: Tasa;
+    pnlANivelUsd: string;
+    pendientes: number;
+  };
+  coincidencia: { senalCompro: number; senalNoCompro: number; sinSenalCompro: number; sinSenalNoCompro: number };
+};
+export type FilaEvitadaORechazada = {
+  decisionId: string;
+  propuestaId: string | null;
+  recibidaEn: string;
+  activo: Activo;
+  confianza: string;
+  primeraLinea: string;
+  tipo: "evitada" | "rechazada";
+  hipotetico?: HipoteticoVista["estado"] | "take_profit" | "stop_loss";
+  reglaPrincipal?: string;
 };

@@ -2,3 +2,5 @@
 7fd04a6db47fa5842bd766302d3cc9c4d4512373:src/server/broker/alpaca.test.ts:generic-api-key:5
 # Prueba de gitleaks (T-18): patron falso, ya revertido; el historial no se reescribe.
 e72f8f39bbb7f39b7a2087c7eef95c740b87f50a:prueba-gitleaks.ts:github-pat:1
+# Falso positivo: huella señuelo "0123456789abcdef" en las semillas del decisor (commit b5f527c, spec 004 T-4). El historial no se reescribe.
+b5f527c5e7068215515bea927d1992ac66e4d363:scripts/sembrar.ts:generic-api-key:527

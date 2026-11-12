@@ -53,36 +53,7 @@ const iso = (d: Date) => d.toISOString();
  */
 export function armarFoto(e: EntradaFoto) {
   const T = e.evaluadaEn;
-  const hasta = (d: DatoConTs | null) => (d && d.ts.getTime() <= T.getTime() ? d : null);
-  const conTs = (d: DatoConTs | null) => (d ? { valor: num(d.valor), ts: iso(d.ts) } : null);
-
-  const cerradas = e.mercado.barras
-    .filter((b) => Date.parse(b.t) + MEDIA_HORA_MS <= T.getTime())
-    .sort((a, b) => Date.parse(a.t) - Date.parse(b.t));
-  const c = cerradas.map((b) => b.c);
-  const n = c.length;
-
-  const ultimo = hasta(e.mercado.ultimo);
-  const bid = hasta(e.mercado.bid);
-  const ask = hasta(e.mercado.ask);
-
-  const u = c.slice(-49);
-  const logRet = u.slice(1).map((x, i) => Math.log(x / u[i]));
-  const media = logRet.reduce((a, r) => a + r, 0) / logRet.length;
-  const desvio = Math.sqrt(logRet.reduce((a, r) => a + (r - media) ** 2, 0) / (logRet.length - 1));
-
-  const mercado = {
-    activo: e.mercado.activo,
-    ultimo_precio: conTs(ultimo),
-    bid: conTs(bid),
-    ask: conTs(ask),
-    spread_bps: bid && ask ? ((ask.valor - bid.valor) / ((ask.valor + bid.valor) / 2) * 1e4).toFixed(2) : null,
-    variacion_1h: n >= 3 ? num(c[n - 1] / c[n - 3] - 1) : null,
-    variacion_24h: n >= 49 ? num(c[n - 1] / c[n - 49] - 1) : null,
-    volumen_24h: n >= 48 ? num(cerradas.slice(-48).reduce((a, b) => a + b.v, 0)) : null,
-    volatilidad_24h: n >= 49 ? num(desvio) : null,
-    ts_ultima_barra: n > 0 ? cerradas[n - 1].t : null,
-  };
+  const mercado = mercadoFoto(e.mercado, T);
   const carteraFaltantes = [
     ...(e.cartera.valorCarteraC === null ? ["valor_cartera_usd"] : []),
     ...(e.cartera.pnlDiaC === null ? ["pnl_dia_usd"] : []),
@@ -105,12 +76,7 @@ export function armarFoto(e: EntradaFoto) {
       pnl_dia_usd: k.pnlDiaC === null ? null : deCentavos(k.pnlDiaC),
       faltantes: carteraFaltantes,
     },
-    mercado: {
-      ...mercado,
-      faltantes: Object.entries(mercado)
-        .filter(([, v]) => v === null)
-        .map(([campo]) => campo),
-    },
+    mercado,
     regla: regla
       ? {
           version: regla.version,
@@ -138,6 +104,46 @@ export function armarFoto(e: EntradaFoto) {
             version_instrucciones: i.versionInstrucciones,
           }
         : { estado: "sin_investigacion" as const },
+  };
+}
+
+/** Los campos de mercado de `foto-v2`; el contexto del decisor los reutiliza tal cual. Todo dato posterior a `T` se descarta. */
+export function mercadoFoto(m: EntradaFoto["mercado"], T: Date) {
+  const hasta = (d: DatoConTs | null) => (d && d.ts.getTime() <= T.getTime() ? d : null);
+  const conTs = (d: DatoConTs | null) => (d ? { valor: num(d.valor), ts: iso(d.ts) } : null);
+
+  const cerradas = m.barras
+    .filter((b) => Date.parse(b.t) + MEDIA_HORA_MS <= T.getTime())
+    .sort((a, b) => Date.parse(a.t) - Date.parse(b.t));
+  const c = cerradas.map((b) => b.c);
+  const n = c.length;
+
+  const ultimo = hasta(m.ultimo);
+  const bid = hasta(m.bid);
+  const ask = hasta(m.ask);
+
+  const u = c.slice(-49);
+  const logRet = u.slice(1).map((x, i) => Math.log(x / u[i]));
+  const media = logRet.reduce((a, r) => a + r, 0) / logRet.length;
+  const desvio = Math.sqrt(logRet.reduce((a, r) => a + (r - media) ** 2, 0) / (logRet.length - 1));
+
+  const mercado = {
+    activo: m.activo,
+    ultimo_precio: conTs(ultimo),
+    bid: conTs(bid),
+    ask: conTs(ask),
+    spread_bps: bid && ask ? ((ask.valor - bid.valor) / ((ask.valor + bid.valor) / 2) * 1e4).toFixed(2) : null,
+    variacion_1h: n >= 3 ? num(c[n - 1] / c[n - 3] - 1) : null,
+    variacion_24h: n >= 49 ? num(c[n - 1] / c[n - 49] - 1) : null,
+    volumen_24h: n >= 48 ? num(cerradas.slice(-48).reduce((a, b) => a + b.v, 0)) : null,
+    volatilidad_24h: n >= 49 ? num(desvio) : null,
+    ts_ultima_barra: n > 0 ? cerradas[n - 1].t : null,
+  };
+  return {
+    ...mercado,
+    faltantes: Object.entries(mercado)
+      .filter(([, v]) => v === null)
+      .map(([campo]) => campo),
   };
 }
 

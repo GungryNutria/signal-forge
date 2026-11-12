@@ -4,12 +4,14 @@ import { metricas } from "@/server/consultas/metricas";
 import type { Metricas } from "@/server/consultas/tipos";
 import { cartera, conHora } from "../_lib/datos";
 import { dia, diaYHora, hora, motivo, NOMBRE_REGLA, pct, signo, usd, usdConSigno, zona } from "../_lib/formato";
-import { leerActivo, type Params } from "../_lib/params";
+import { esVistaComparacion, leerActivo, type Params } from "../_lib/params";
 import { BloqueConError } from "./bloque";
+import { ContenidoComparacion } from "./comparacion-vista";
 import { Barra, Cargando } from "./esqueleto";
 import { GrupoChips } from "./filtros";
 import { CurvaSaldo, PnlDiario } from "./graficas";
 import { Tarjeta } from "./tarjeta";
+import { Vistas } from "./vistas";
 
 const COLOR = { "-1": "text-neg", "0": "text-ink", "1": "text-pos" } as const;
 
@@ -275,7 +277,26 @@ async function Cuerpo({ activo }: { activo: ReturnType<typeof leerActivo> }) {
 }
 
 export async function ContenidoMetricas({ searchParams }: { searchParams: Promise<Params> }) {
-  const activo = leerActivo(await searchParams);
+  const sp = await searchParams;
+  const comparacion = esVistaComparacion(sp);
+  const activo = leerActivo(sp);
+  return (
+    <>
+      <Vistas
+        nombre="Vistas de Métricas"
+        base="/metricas"
+        actual={comparacion ? "comparacion" : "cartera"}
+        opciones={[
+          { valor: "cartera", texto: "Cartera" },
+          { valor: "comparacion", texto: "Decisor frente a regla" },
+        ]}
+      />
+      {comparacion ? <ContenidoComparacion searchParams={searchParams} /> : <Cartera activo={activo} />}
+    </>
+  );
+}
+
+function Cartera({ activo }: { activo: ReturnType<typeof leerActivo> }) {
   return (
     <>
       <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">

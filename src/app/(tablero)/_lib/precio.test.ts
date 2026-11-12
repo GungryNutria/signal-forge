@@ -163,7 +163,7 @@ describe("ejes y textos", () => {
     const op = (id: string, eIn: boolean, sal: boolean): OperacionGrafica => ({
       propuestaId: id,
       numero: null,
-      entrada: { t: "2026-11-07T10:00:00Z", precio: "1", nocionalUsd: "1", cantidad: "1", cierre: "1", cierrePrevio: "1", sma20: "1", enRango: eIn },
+      entrada: { proponente: "ciclo", confianza: null, t: "2026-11-07T10:00:00Z", precio: "1", nocionalUsd: "1", cantidad: "1", cierre: "1", cierrePrevio: "1", sma20: "1", enRango: eIn },
       salida: sal
         ? { t: "2026-11-07T11:00:00Z", precio: "1", motivo: "stop_loss", nivel: "1", pnlNetoUsd: "1", pnlNetoPct: "1", duracionS: 1, enRango: true }
         : null,

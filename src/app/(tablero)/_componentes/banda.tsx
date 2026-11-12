@@ -3,11 +3,11 @@ import type { ReactNode } from "react";
 import { ACTIVOS } from "@/core/activos";
 import type { EstadoSistema } from "@/server/consultas/tipos";
 import { estado } from "../_lib/datos";
-import { dia, enUtc, hora, horaConSegundos, horaCorta, minutosDesde, pct, relativo, usdConSigno } from "../_lib/formato";
+import { dia, enUtc, hora, horaConSegundos, horaCorta, lineaDeModos, minutosDesde, NOMBRE_MODO, pct, rangoRanura, relativo, usdConSigno } from "../_lib/formato";
 import { Alerta } from "./alerta";
 import { Chip } from "./chip";
 import { Barra, Cargando } from "./esqueleto";
-import { ChipOmitida, ChipResultado, esOmitida } from "./estados";
+import { ChipOmitida, ChipRanura, ChipResultado, ChipResultadoDecisor, esOmitida } from "./estados";
 import { IconoChevron } from "./iconos";
 import { BandaPlegable } from "./banda-plegable";
 import { Tarjeta } from "./tarjeta";
@@ -42,7 +42,7 @@ function alertas(e: EstadoSistema, ahora: Date): AlertaVista[] {
   if (e.cicloDetenido) {
     lista.push({
       clave: "ciclo-detenido",
-      tono: "neg",
+      tono: e.cicloDetenido.severidad,
       contenido: `El ciclo no corre desde ${hora(e.cicloDetenido.desde)} · ${relativo(minutosDesde(e.cicloDetenido.desde, ahora))}`,
     });
   }
@@ -51,6 +51,38 @@ function alertas(e: EstadoSistema, ahora: Date): AlertaVista[] {
       clave: "broker",
       tono: "neg",
       contenido: `${e.broker.leidoEn ? `El broker no responde desde ${hora(e.broker.leidoEn)}.` : "El broker no responde."} Los valores que dependen de él no están actualizados`,
+    });
+  }
+  if (e.modos === null) {
+    lista.push({
+      clave: "modos-invalidos",
+      tono: "neg",
+      contenido:
+        "Los modos de los proponentes no son válidos. No se ejecuta ninguna propuesta hasta corregir la configuración del despliegue",
+    });
+  } else if (e.modos.ciclo.motivo === "dos_proponentes_en_ejecuta") {
+    lista.push({
+      clave: "dos-proponentes",
+      tono: "neg",
+      contenido:
+        "Configuración inválida: el ciclo y el decisor están en Ejecuta. No se ejecuta ninguna propuesta hasta corregir la configuración del despliegue",
+    });
+  } else if (e.modos.decisor.motivo === "r11_no_vigente") {
+    lista.push({
+      clave: "r11-no-vigente",
+      tono: "warn",
+      contenido:
+        "El decisor está configurado en Ejecuta, pero opera en Solo registra porque R11 no está en vigor. Se corrige en la configuración del despliegue",
+    });
+  }
+  for (const a of e.decisor.alertas) {
+    const desde = a.desde ?? e.decisor.activacion;
+    lista.push({
+      clave: `decisor-${a.activo}`,
+      tono: a.severidad,
+      contenido: a.desde
+        ? `${a.activo}: sin decisión válida del decisor desde ${hora(a.desde)} · ${relativo(minutosDesde(a.desde, ahora))}`
+        : `${a.activo}: sin decisión válida del decisor desde su activación${desde ? ` (${dia(desde)} ${horaCorta(desde)})` : ""}`,
     });
   }
   if (e.modo === "pausa_manual") {
@@ -91,7 +123,60 @@ function alertas(e: EstadoSistema, ahora: Date): AlertaVista[] {
       ),
     });
   }
-  return lista;
+  return lista.sort((a, b) => Number(b.tono === "neg") - Number(a.tono === "neg"));
+}
+
+function GrupoDecisor({ e, ahora }: { e: EstadoSistema; ahora: Date }) {
+  const modo = e.modos?.decisor.efectivo ?? null;
+  const u = e.decisor.ultimaRanura;
+  return (
+    <section
+      aria-label="Decisor, última ranura"
+      className="relative order-2 border-t border-line pt-3 has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-accent lg:order-3 lg:border-0 lg:pt-0"
+    >
+      <div className="mb-1.5 flex items-center justify-between gap-2">
+        <h2 className="text-[13px] leading-[1.3] font-semibold text-muted">Decisor · última ranura</h2>
+        <span className="flex items-center gap-1">
+          {u ? <ChipRanura estado={u.estado} /> : null}
+          <Link
+            href="/ejecuciones?vista=decisor"
+            className="inline-flex text-accent outline-none after:absolute after:inset-0"
+          >
+            <IconoChevron />
+            <span className="sr-only">Ver el historial del decisor</span>
+          </Link>
+        </span>
+      </div>
+      {modo === null ? (
+        <p className="text-sm">Decisor: modo no disponible</p>
+      ) : modo === "apagado" ? (
+        <>
+          <p className="text-sm">Decisor: {NOMBRE_MODO.apagado}</p>
+          <p className="text-xs text-muted">Se activa en la configuración del despliegue</p>
+        </>
+      ) : u === null ? (
+        <p className="text-sm">
+          Decisor: {NOMBRE_MODO[modo]} · sin ranuras todavía. Corre cada hora en el minuto 45; la próxima ranura empieza a las{" "}
+          {hora(e.decisor.proximaRanura)}
+        </p>
+      ) : (
+        <>
+          <p className="text-sm">
+            {rangoRanura(u.ranura)}{" "}
+            <span className="text-xs text-muted">· {u.enCurso ? "en curso" : `terminó ${relativo(minutosDesde(u.fin, ahora))}`}</span>
+          </p>
+          <ul className="mt-1.5 flex flex-col gap-1.5">
+            {ACTIVOS.map((a) => (
+              <li key={a} className="flex items-center gap-2 text-sm">
+                <span className="font-semibold">{a}</span>
+                <ChipResultadoDecisor r={u.porActivo[a]} />
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </section>
+  );
 }
 
 export async function Banda() {
@@ -100,40 +185,51 @@ export async function Banda() {
   const avisos = alertas(e, ahora);
   const sinInvestigacion = ACTIVOS.every((a) => e.investigacionPorActivo[a] === null);
 
+  const cicloApagado = e.modos?.ciclo.efectivo === "apagado";
+
   return (
-    <Tarjeta className="px-4 py-4">
-      <div className="grid grid-cols-2 gap-x-4 gap-y-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.45fr)_minmax(0,1.1fr)_minmax(0,0.6fr)]">
+    <Tarjeta className="relative px-4 py-4">
+      <div className="grid grid-cols-1 gap-y-3 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)_minmax(0,1.4fr)_minmax(0,0.85fr)_minmax(0,0.6fr)] lg:gap-x-4">
         <section aria-label="Modo de trading" className="order-1">
-          <Etiqueta>Modo</Etiqueta>
-          <ChipModo modo={e.modo} />
+          <h2 className="sr-only text-[13px] leading-[1.3] font-semibold text-muted lg:not-sr-only lg:mb-1.5 lg:block">Modo</h2>
+          <div className="max-w-[calc(100%-12rem)] lg:max-w-none">
+            <ChipModo modo={e.modo} />
+          </div>
+          <p className="mt-1.5 text-[13px] [overflow-wrap:anywhere]">
+            {e.modos ? lineaDeModos(e.modos.ciclo, e.modos.decisor) : "Ejecuta: ninguno"}
+          </p>
         </section>
 
-        <section aria-label="Datos" className="order-2 text-right lg:order-4 lg:text-left">
-          <Etiqueta>Datos de las</Etiqueta>
-          <p className="text-sm">{horaConSegundos(ahora.toISOString())}</p>
-          <p className="text-xs text-muted">{dia(ahora.toISOString())}</p>
+        <section aria-label="Datos" className="absolute top-4 right-4 text-right lg:static lg:order-5 lg:text-left">
+          <h2 className="inline text-xs text-muted lg:mb-1.5 lg:block lg:text-[13px] lg:leading-[1.3] lg:font-semibold">Datos de las</h2>{" "}
+          <p className="inline text-xs lg:block lg:text-sm">{horaConSegundos(ahora.toISOString())}</p>
+          <p className="hidden text-xs text-muted lg:block">{dia(ahora.toISOString())}</p>
         </section>
+
+        <GrupoDecisor e={e} ahora={ahora} />
 
         <section
           aria-label="Última ejecución del ciclo"
-          className="relative order-3 col-span-2 border-t border-line pt-3 lg:order-2 lg:col-span-1 lg:border-0 lg:pt-0"
+          className="relative order-3 border-t border-line pt-3 lg:order-2 lg:border-0 lg:pt-0"
         >
           <div className="mb-1.5 flex items-baseline justify-between gap-2">
-            <h2 className="text-[13px] leading-[1.3] font-semibold text-muted">Última ejecución</h2>
+            <h2 className="text-[13px] leading-[1.3] font-semibold text-muted">Última ejecución del ciclo</h2>
             <Link
               href="/ejecuciones"
               className="inline-flex items-center gap-0.5 text-[13px] font-semibold text-accent after:absolute after:inset-0"
             >
-              Ver ejecuciones
+              <span className="lg:sr-only">Ver ejecuciones</span>
               <IconoChevron />
             </Link>
           </div>
-          {ult ? (
+          {cicloApagado ? (
+            <p className="text-sm">Ciclo: {NOMBRE_MODO.apagado}. Se enciende en la configuración del despliegue</p>
+          ) : ult ? (
             <>
               <p className="text-sm">
                 {hora(ult.inicio)} <span className="text-xs text-muted">· {relativo(minutosDesde(ult.inicio, ahora))}</span>
               </p>
-              <ul className="mt-1.5 flex flex-col gap-1.5 lg:flex-row lg:flex-wrap lg:gap-x-4">
+              <ul className="mt-1.5 flex flex-col gap-1.5">
                 {esOmitida(ult.estado) ? (
                   <li>
                     <ChipOmitida />
@@ -155,7 +251,7 @@ export async function Banda() {
 
         <section
           aria-label="Última investigación por activo"
-          className="order-4 col-span-2 border-t border-line pt-3 lg:order-3 lg:col-span-1 lg:border-0 lg:pt-0"
+          className="order-4 border-t border-line pt-3 lg:border-0 lg:pt-0"
         >
           <Etiqueta>Investigación (UTC−6)</Etiqueta>
           {sinInvestigacion && ult === null ? (
@@ -239,24 +335,21 @@ export function BandaEsqueleto() {
   return (
     <Tarjeta className="px-4 py-4">
       <Cargando etiqueta="la banda de estado">
-        <div className="grid grid-cols-2 gap-x-4 gap-y-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.45fr)_minmax(0,1.1fr)_minmax(0,0.6fr)]">
-          <div className="order-1 flex flex-col gap-2">
-            <Barra ancho="w-24" />
+        <div className="grid grid-cols-1 gap-y-3 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)_minmax(0,1.4fr)_minmax(0,0.85fr)_minmax(0,0.6fr)] lg:gap-x-4">
+          <div className="flex flex-col gap-2">
             <Barra ancho="w-36" alto="h-6" />
+            <Barra ancho="w-3/4" />
           </div>
-          <div className="order-2 flex flex-col items-end gap-2 lg:order-4 lg:items-start">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="flex flex-col gap-2">
+              <Barra ancho="w-28" />
+              <Barra ancho="w-3/4" />
+              <Barra ancho="w-full" alto="h-6" />
+            </div>
+          ))}
+          <div className="hidden flex-col gap-2 lg:flex">
             <Barra ancho="w-20" />
             <Barra ancho="w-28" />
-          </div>
-          <div className="order-3 col-span-2 flex flex-col gap-2 lg:order-2 lg:col-span-1">
-            <Barra ancho="w-28" />
-            <Barra ancho="w-3/4" />
-            <Barra ancho="w-full" alto="h-6" />
-          </div>
-          <div className="order-4 col-span-2 flex flex-col gap-2 lg:order-3 lg:col-span-1">
-            <Barra ancho="w-32" />
-            <Barra ancho="w-full" alto="h-6" />
-            <Barra ancho="w-full" alto="h-6" />
           </div>
         </div>
       </Cargando>

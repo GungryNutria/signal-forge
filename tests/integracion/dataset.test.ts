@@ -1,9 +1,12 @@
 import type { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { leerActivo } from "@/procesos/dataset";
+import { leerActivo, leerArgumentos } from "@/procesos/dataset";
+import { ejecutarSeguimiento } from "@/procesos/seguimiento";
 import { filasDataset, type FilaDataset } from "@/server/dataset";
 import { sembrar } from "../../scripts/sembrar";
 import { abrirPool, vaciarBase } from "./arnes";
+import { sembrarCierre } from "./ayudas";
+import { FUENTE_DECISOR, sembrarDecision, sembrarMuestras, sembrarSenal } from "./ayudas-seguimiento";
 
 // AC-20 y AC-29: la extracción da una fila por evaluación, sin llamadas externas ni cambios en los registros,
 // y filtrada por activo solo trae ese activo.
@@ -16,7 +19,7 @@ async function conteos() {
   for (const t of TABLAS) r[t] = (await pool.query(`SELECT count(*)::int AS n FROM ${t}`)).rows[0].n;
   return r;
 }
-async function todo(f: { activo?: "BTC/USD" | "SOL/USD" } = {}) {
+async function todo(f: Parameters<typeof filasDataset>[1] = {}) {
   const filas: FilaDataset[] = [];
   for await (const fila of filasDataset(pool, f)) filas.push(fila);
   return filas;
@@ -119,5 +122,102 @@ describe("argumentos de dist/dataset.mjs", () => {
     expect(leerActivo(["--activo=BTC/USD"])).toBe("BTC/USD");
     expect(() => leerActivo(["--activo", "DOGE/USD"])).toThrow();
     expect(() => leerActivo(["--otro"])).toThrow(/desconocido/);
+  });
+
+  it("--proponente, --modo y las dos formas de cada argumento", () => {
+    expect(leerArgumentos(["--proponente", "decisor", "--modo=solo_registra", "--activo", "SOL/USD"])).toEqual({
+      proponente: "decisor", modo: "solo_registra", activo: "SOL/USD",
+    });
+    expect(() => leerArgumentos(["--proponente", "otro"])).toThrow(/ciclo o decisor/);
+    expect(() => leerArgumentos(["--modo", "otro"])).toThrow(/--modo/);
+  });
+});
+
+// AC-25 (REQ-31, REQ-22, REQ-25): proponente y modo explícitos y filtrables; etiquetas reales e hipotéticas en campos distintos.
+describe("dataset con proponente y modo (AC-25)", () => {
+  const T = (hhmm: string) => new Date(`2026-11-12T${hhmm}:00Z`);
+  let s1: string, s2: string, s3: string;
+  let idEvitada: string, idInvalida: string, idComprarSolo: string, idEjecutada: string;
+
+  beforeAll(async () => {
+    await vaciarBase();
+    // Tres señales registradas de BTC: la primera toca el take profit a las 12:06; la segunda sigue pendiente y bloquea a la tercera (N = 1).
+    s1 = await sembrarSenal(pool, { t0: T("12:00"), ask: 100_000 });
+    s2 = await sembrarSenal(pool, { t0: T("12:30"), ask: 100_000 });
+    s3 = await sembrarSenal(pool, { t0: T("12:40"), ask: 100_000 });
+    await sembrarSenal(pool, { t0: T("12:00"), ask: 100_000, resultado: "sin_senal", modo: "ejecuta" });
+    await sembrarMuestras(pool, "BTC/USD", T("12:01"), [100_000, 100_500, 101_000, 102_000, 103_000, 104_000]);
+    await sembrarMuestras(pool, "SOL/USD", T("12:01"), [199, 195]);
+    // Decisor: una entrada evitada (SOL, toca el stop), una inválida, un "comprar" en solo registro y un "comprar" ejecutado y cerrado.
+    // Los contextos traen el ask de BTC y SOL a 100 000 y 200 (valores por omisión).
+    idEvitada = await sembrarDecision(pool, { ranura: T("11:45"), activo: "SOL/USD", decision: "no_comprar", recibidaEn: T("11:50") });
+    idInvalida = await sembrarDecision(pool, { ranura: T("11:45"), activo: "BTC/USD", valida: false, recibidaEn: T("11:51") });
+    idComprarSolo = await sembrarDecision(pool, { ranura: T("12:45"), activo: "SOL/USD", decision: "comprar", recibidaEn: T("12:50") });
+    idEjecutada = await sembrarDecision(pool, { ranura: T("12:45"), activo: "BTC/USD", decision: "comprar", recibidaEn: T("12:51"), modo: "ejecuta" });
+    await sembrarCierre(pool, { n: 900, motivo: "stop_loss", precioSalida: 97_500, pnlNetoUsd: -14.93, decisionId: idEjecutada });
+    await ejecutarSeguimiento({ pool, ahora: () => T("14:00"), log: () => {}, fuente: FUENTE_DECISOR("solo_registra") });
+  });
+
+  it("--proponente decisor: una fila por decisión recibida, con todos sus campos", async () => {
+    const filas = await todo({ proponente: "decisor" });
+    const { rows } = await pool.query("SELECT count(*)::int AS n FROM decisiones");
+    expect(filas).toHaveLength(rows[0].n);
+    expect(filas).toHaveLength(4);
+    for (const f of filas) {
+      for (const c of ["decision_id", "recibida_en", "ranura", "activo", "proponente", "modo", "motivo_modo", "valida", "estado", "motivo",
+        "decision", "confianza", "razonamiento", "version_instrucciones", "ejecucion_decisor", "contexto_id", "contexto", "propuesta_id",
+        "propuesta_decision", "propuesta_motivo", "reglas_incumplidas", "lote_id", "etiqueta_estado", "motivo_cierre", "etiqueta_exito",
+        "pnl_neto_usd", "pnl_neto_pct", "pnl_a_nivel_usd", "pnl_a_nivel_pct", "hip_resultado", "hip_tocado_en", "hip_pnl_a_nivel_usd",
+        "hip_pnl_a_nivel_pct", "hip_etiqueta_exito", "hip_huecos"])
+        expect(f).toHaveProperty(c);
+      expect(f.proponente).toBe("decisor");
+      expect((f.contexto as { version: string }).version).toBe("contexto-v1");
+    }
+    const por = (id: string) => filas.find((f) => f.decision_id === id)!;
+    expect(por(idEvitada)).toMatchObject({ decision: "no_comprar", modo: "solo_registra", hip_resultado: "stop_loss", hip_pnl_a_nivel_usd: "-12.45", hip_etiqueta_exito: 0, etiqueta_exito: null });
+    expect(por(idInvalida)).toMatchObject({ valida: false, decision: null, hip_resultado: null });
+    expect(por(idComprarSolo)).toMatchObject({ decision: "comprar", propuesta_id: null, etiqueta_estado: "no_aplica", hip_resultado: null });
+    // Etiqueta real en sus campos y nada hipotético; el PnL a nivel se conserva aparte del neto.
+    expect(por(idEjecutada)).toMatchObject({
+      modo: "ejecuta", etiqueta_estado: "cerrada", motivo_cierre: "stop_loss", etiqueta_exito: 0, pnl_neto_usd: "-14.93",
+      pnl_a_nivel_usd: "-12.45", hip_resultado: null, hip_etiqueta_exito: null,
+    });
+  });
+
+  it("--proponente ciclo trae el resultado hipotético de sus señales y si cuentan para la regla con N = 1", async () => {
+    const filas = await todo({ proponente: "ciclo", modo: "solo_registra", topeN: 1 });
+    expect(filas.map((f) => f.evaluacion_id).sort()).toEqual([s1, s2, s3].sort());
+    const por = (id: string) => filas.find((f) => f.evaluacion_id === id)!;
+    expect(por(s1)).toMatchObject({ proponente: "ciclo", modo: "solo_registra", hip_resultado: "take_profit", hip_pnl_a_nivel_usd: "17.40", hip_etiqueta_exito: 1, hip_cuenta_para_regla: true, etiqueta_exito: null });
+    expect(por(s2)).toMatchObject({ hip_resultado: "pendiente", hip_pnl_a_nivel_usd: null, hip_cuenta_para_regla: true });
+    expect(por(s3)).toMatchObject({ hip_resultado: "pendiente", hip_cuenta_para_regla: false });
+  });
+
+  it("con N = 2 la tercera sí cuenta, y sin N la columna sale null; las filas que no son señal no la llevan", async () => {
+    const con2 = await todo({ proponente: "ciclo", topeN: 2 });
+    expect(con2.find((f) => f.evaluacion_id === s3)).toMatchObject({ hip_cuenta_para_regla: true });
+    const sinN = await todo({ proponente: "ciclo" });
+    expect(sinN.find((f) => f.evaluacion_id === s1)).toMatchObject({ hip_cuenta_para_regla: null });
+    const noSenal = sinN.find((f) => f.resultado === "sin_senal")!;
+    expect(noSenal).not.toHaveProperty("hip_cuenta_para_regla");
+    expect(noSenal).toMatchObject({ proponente: "ciclo", modo: "ejecuta", hip_resultado: null });
+  });
+
+  it("sin --proponente salen primero las del ciclo y después las del decisor, y --modo filtra las dos", async () => {
+    const todas = await todo({ topeN: 1 });
+    expect(todas.map((f) => f.proponente)).toEqual([...Array(4).fill("ciclo"), ...Array(4).fill("decisor")]);
+    // Las evaluaciones de ciclo con modo "ejecuta": la sin_senal sembrada; del decisor, la compra ejecutada.
+    const ejecuta = await todo({ modo: "ejecuta", topeN: 1 });
+    expect(ejecuta.map((f) => [f.proponente, f.modo])).toEqual([["ciclo", "ejecuta"], ["decisor", "ejecuta"]]);
+    await expect(todo({ proponente: "otro" as "ciclo" })).rejects.toThrow(/proponente inválido/);
+    await expect(todo({ modo: "otro" as "ejecuta" })).rejects.toThrow(/modo inválido/);
+  });
+
+  it("extraer no modifica ningún registro", async () => {
+    const n = async () =>
+      (await pool.query("SELECT (SELECT count(*) FROM decisiones) + (SELECT count(*) FROM resultados_hipoteticos) + (SELECT count(*) FROM evaluaciones) AS n")).rows[0].n;
+    const antes = await n();
+    await todo({ topeN: 1 });
+    expect(await n()).toBe(antes);
   });
 });

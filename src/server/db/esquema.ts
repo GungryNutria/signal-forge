@@ -72,16 +72,88 @@ export const evaluaciones = pgTable(
     foto: jsonb("foto").notNull(),
     investigacionId: uuid("investigacion_id").references(() => investigaciones.id),
     errorDetalle: text("error_detalle"),
+    // Modo efectivo del ciclo al evaluar (REQ-14). Nulo = anterior a los modos.
+    modo: text("modo"),
+    motivoModo: text("motivo_modo"),
   },
   (t) => [
     uniqueIndex("evaluaciones_ejecucion_activo_uq").on(t.ejecucionId, t.activo),
     check("evaluaciones_activo_ck", sql`${t.activo} IN ${ACTIVOS}`),
     check(
       "evaluaciones_resultado_ck",
-      sql`${t.resultado} IN ('sin_senal','propuesta','datos_no_disponibles','error')`,
+      sql`${t.resultado} IN ('sin_senal','propuesta','senal_registrada','datos_no_disponibles','error')`,
     ),
     index("evaluaciones_activo_evaluada_idx").on(t.activo, t.evaluadaEn.desc()),
     index("evaluaciones_resultado_idx").on(t.resultado),
+  ],
+);
+
+// Foto de features del decisor (REQ-4): lo que el servidor le entregó, tal cual. Inmutable.
+export const contextosDecisor = pgTable(
+  "contextos_decisor",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    creadoEn: ts("creado_en").notNull().defaultNow(),
+    // Primeros 16 hex del hash del token al que se entregó (REQ-9): cambiar el token invalida los contextos anteriores.
+    tokenHuella: char("token_huella", { length: 16 }).notNull(),
+    version: text("version").notNull(),
+    contenido: jsonb("contenido").notNull(),
+  },
+  (t) => [index("contextos_decisor_creado_idx").on(t.creadoEn)],
+);
+
+// Toda decisión recibida, válida o no (REQ-29). Una fila nunca se modifica. `valida` y `es_original` solo son
+// verdaderas en las que pasaron REQ-7 a REQ-9 y no son conflicto; el resto lleva `estado = 'rechazada'` y su motivo.
+export const decisiones = pgTable(
+  "decisiones",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    recibidaEn: ts("recibida_en").notNull().defaultNow(),
+    ranura: ts("ranura").notNull(),
+    estado: text("estado").notNull(),
+    motivo: text("motivo"),
+    motivos: jsonb("motivos"),
+    valida: boolean("valida").notNull(),
+    esOriginal: boolean("es_original").notNull(),
+    claveIdempotencia: text("clave_idempotencia"),
+    huellaContenido: char("huella_contenido", { length: 64 }),
+    ejecucionDecisor: text("ejecucion_decisor"),
+    versionInstrucciones: text("version_instrucciones"),
+    contextoId: uuid("contexto_id").references(() => contextosDecisor.id),
+    activo: text("activo"),
+    decision: text("decision"),
+    confianza: numeric("confianza", { precision: 4, scale: 3 }),
+    razonamiento: text("razonamiento"),
+    cuerpoCrudo: text("cuerpo_crudo"),
+    modoConfigurado: text("modo_configurado"),
+    modoEfectivo: text("modo_efectivo"),
+    motivoModo: text("motivo_modo"),
+  },
+  (t) => [
+    uniqueIndex("decisiones_clave_original_uq")
+      .on(t.claveIdempotencia)
+      .where(sql`${t.esOriginal}`),
+    uniqueIndex("decisiones_ranura_activo_valida_uq")
+      .on(t.ranura, t.activo)
+      .where(sql`${t.valida}`),
+    check("decisiones_estado_ck", sql`${t.estado} IN ('aceptada','rechazada')`),
+    check(
+      "decisiones_valida_ck",
+      sql`NOT ${t.valida} OR (
+        ${t.activo} IN ${ACTIVOS}
+        AND ${t.decision} IN ('comprar','no_comprar')
+        AND ${t.confianza} BETWEEN 0 AND 1
+        AND char_length(${t.razonamiento}) BETWEEN 1 AND 2000
+        AND ${t.contextoId} IS NOT NULL
+        AND ${t.versionInstrucciones} IS NOT NULL
+        AND ${t.modoEfectivo} IN ('ejecuta','solo_registra')
+      )`,
+    ),
+    index("decisiones_recibida_idx").on(t.recibidaEn.desc(), t.id.desc()),
+    index("decisiones_ranura_activo_idx").on(t.ranura, t.activo),
+    index("decisiones_activo_valida_idx")
+      .on(t.activo, t.recibidaEn.desc())
+      .where(sql`${t.valida}`),
   ],
 );
 
@@ -95,6 +167,8 @@ export const propuestas = pgTable(
     proponente: text("proponente"),
     ejecucionId: uuid("ejecucion_id"),
     evaluacionId: uuid("evaluacion_id").references(() => evaluaciones.id),
+    // Decisión del decisor que originó la propuesta (REQ-10). Nula en las del ciclo.
+    decisionId: uuid("decision_id").references(() => decisiones.id),
     versionRegla: text("version_regla"),
     activo: text("activo"),
     lado: text("lado"),
@@ -121,6 +195,7 @@ export const propuestas = pgTable(
     index("propuestas_activo_recibida_idx").on(t.activo, t.recibidaEn.desc()),
     index("propuestas_decision_idx").on(t.decision),
     index("propuestas_ejecucion_activo_idx").on(t.ejecucionId, t.activo),
+    index("propuestas_decision_id_idx").on(t.decisionId),
   ],
 );
 
@@ -280,7 +355,7 @@ export const eventos = pgTable(
   (t) => [
     check(
       "eventos_tipo_ck",
-      sql`${t.tipo} IN ('auth_fallida','pausa_automatica','entorno_no_paper','error_ciclo','error_vigilante')`,
+      sql`${t.tipo} IN ('auth_fallida','pausa_automatica','entorno_no_paper','error_ciclo','error_vigilante','modo_proponentes')`,
     ),
     uniqueIndex("eventos_pausa_dia_uq")
       .on(t.diaUtc)
@@ -301,3 +376,77 @@ export const lecturasMercado = pgTable("lecturas_mercado", {
   ultimoErrorEn: ts("ultimo_error_en"),
   ultimoError: text("ultimo_error"),
 });
+
+// Ranuras del decisor ya terminadas (REQ-26): las cierra `seguimiento`, una fila por ranura, nunca se modifica.
+export const ranurasDecisor = pgTable(
+  "ranuras_decisor",
+  {
+    ranura: ts("ranura").primaryKey(),
+    cerradaEn: ts("cerrada_en").notNull().defaultNow(),
+    estado: text("estado").notNull(),
+    detalle: jsonb("detalle").notNull(),
+  },
+  (t) => [
+    check("ranuras_decisor_estado_ck", sql`${t.estado} IN ('completa','parcial','invalida','sin_llegar','apagado')`),
+  ],
+);
+
+// Bid y ask que lee `guardarLectura` (vigilante y ciclo); con ellos se resuelven los hipotéticos (D-3). Append-only.
+export const muestrasPrecio = pgTable(
+  "muestras_precio",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    activo: text("activo").notNull(),
+    fuenteTs: ts("fuente_ts").notNull(),
+    bid: cant("bid").notNull(),
+    ask: cant("ask").notNull(),
+    leidoEn: ts("leido_en").notNull(),
+  },
+  (t) => [
+    uniqueIndex("muestras_precio_activo_fuente_uq").on(t.activo, t.fuenteTs),
+    check("muestras_precio_activo_ck", sql`${t.activo} IN ${ACTIVOS}`),
+  ],
+);
+
+// Resultado hipotético (REQ-20) de una señal registrada o de una entrada evitada. Una fila solo cuando se resuelve.
+export const resultadosHipoteticos = pgTable(
+  "resultados_hipoteticos",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    origen: text("origen").notNull(),
+    evaluacionId: uuid("evaluacion_id")
+      .unique()
+      .references(() => evaluaciones.id),
+    decisionId: uuid("decision_id")
+      .unique()
+      .references(() => decisiones.id),
+    activo: text("activo").notNull(),
+    t0: ts("t0").notNull(),
+    precioEntrada: cant("precio_entrada"),
+    nocionalUsd: usd("nocional_usd").notNull(),
+    stopLoss: cant("stop_loss"),
+    takeProfit: cant("take_profit"),
+    comisionBps: integer("comision_bps").notNull(),
+    resultado: text("resultado").notNull(),
+    tocadoEn: ts("tocado_en"),
+    precioToque: cant("precio_toque"),
+    pnlANivelUsd: usd("pnl_a_nivel_usd"),
+    pnlANivelPct: numeric("pnl_a_nivel_pct", { precision: 10, scale: 6 }),
+    etiquetaExito: smallint("etiqueta_exito"),
+    huecos: jsonb("huecos").notNull().default(sql`'[]'::jsonb`),
+    version: text("version").notNull(),
+    calculadoEn: ts("calculado_en").notNull().defaultNow(),
+  },
+  (t) => [
+    check("resultados_hipoteticos_origen_ck", sql`${t.origen} IN ('senal_registrada','entrada_evitada')`),
+    check(
+      "resultados_hipoteticos_uno_ck",
+      sql`(${t.evaluacionId} IS NOT NULL) <> (${t.decisionId} IS NOT NULL)`,
+    ),
+    check(
+      "resultados_hipoteticos_resultado_ck",
+      sql`${t.resultado} IN ('take_profit','stop_loss','sin_precio_entrada')`,
+    ),
+    check("resultados_hipoteticos_activo_ck", sql`${t.activo} IN ${ACTIVOS}`),
+  ],
+);

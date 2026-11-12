@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import type { OperacionesPrecio, SeriePrecio } from "@/server/consultas/tipos";
-import { dia, diaYHora, enUtc, hora, horaCorta, pct, signo, usd, usdConSigno, zona } from "../_lib/formato";
+import { confianza, dia, diaYHora, enUtc, hora, horaCorta, NOMBRE_PROPONENTE, pct, signo, usd, usdConSigno, zona } from "../_lib/formato";
 import { distanciaANiveles, hrefOperacion, type Marca, marcas, resumenSerie, type TipoMarca } from "../_lib/precio";
 import { IconoChevron } from "./iconos";
 import { FormaMarca } from "./precio-comun";
@@ -27,7 +27,15 @@ export const tituloDeMarca = (m: Marca) => (m.tipo === "entrada" && m.op.numero 
 
 /** Importe y, en una salida, PnL con signo y de dónde entró. Lo usan la lista y la consulta de un grupo. */
 export function detalleDeMarca(m: Marca, ahora: Date): ReactNode {
-  if (m.tipo === "entrada") return `${usd(m.precio)} · ${m.op.salida ? CERRADA[m.op.salida.motivo] : "Abierta"}`;
+  if (m.tipo === "entrada") {
+    const e = m.op.entrada;
+    // REQ-32: el proponente y, del decisor, su confianza; los valores de la regla del ciclo están en la consulta.
+    const quien =
+      e.proponente === "decisor"
+        ? `Proponente: ${NOMBRE_PROPONENTE.decisor} · Confianza ${e.confianza === null ? "—" : confianza(e.confianza)}`
+        : `Proponente: ${NOMBRE_PROPONENTE.ciclo}`;
+    return `${usd(m.precio)} · ${m.op.salida ? CERRADA[m.op.salida.motivo] : "Abierta"} · ${quien}`;
+  }
   const s = m.op.salida!;
   return (
     <>

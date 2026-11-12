@@ -7,13 +7,29 @@ export function hashToken(token: string): string {
   return sha256(token).toString("hex");
 }
 
-const BEARER = /^Bearer (sfi_[A-Za-z0-9_-]{43})$/;
+const BEARER = /^Bearer (sf([id])_[A-Za-z0-9_-]{43})$/;
 
-/** REQ-1: Bearer bien formado cuyo SHA-256 coincide (en tiempo constante) con el hash configurado. */
-export function tokenValido(authorization: string | null, hashEsperado: string | undefined): boolean {
+export type Rol = "investigador" | "decisor";
+
+/**
+ * REQ-1: Bearer bien formado (`sfi_` del investigador, `sfd_` del decisor) cuyo SHA-256 coincide, en tiempo constante,
+ * con el hash configurado de su rol. Un token con otro prefijo, sin hash configurado o revocado da `null`.
+ */
+export function identificarToken(
+  authorization: string | null,
+  hashes: { investigador?: string; decisor?: string },
+): Rol | null {
   const m = authorization ? BEARER.exec(authorization) : null;
-  if (!m || !hashEsperado || !/^[0-9a-f]{64}$/.test(hashEsperado)) return false;
-  return timingSafeEqual(sha256(m[1]), Buffer.from(hashEsperado, "hex"));
+  if (!m) return null;
+  const rol: Rol = m[2] === "i" ? "investigador" : "decisor";
+  const esperado = hashes[rol];
+  if (!esperado || !/^[0-9a-f]{64}$/.test(esperado)) return null;
+  return timingSafeEqual(sha256(m[1]), Buffer.from(esperado, "hex")) ? rol : null;
+}
+
+/** REQ-1: el Bearer es el del investigador. */
+export function tokenValido(authorization: string | null, hashEsperado: string | undefined): boolean {
+  return identificarToken(authorization, { investigador: hashEsperado }) === "investigador";
 }
 
 /** REQ-3: basic auth del dashboard. Compara los digest de ambos lados, sin cortocircuito. */

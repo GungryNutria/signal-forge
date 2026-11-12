@@ -14,6 +14,11 @@ const COLUMNAS_VIEJAS = [
   "decision", "motivo", "lote_id", "etiqueta_estado", "motivo_cierre", "etiqueta_exito", "pnl_neto_usd", "pnl_neto_pct", "duracion_min",
 ];
 const COLUMNAS_NUEVAS = ["reglas_aplicadas", "r11", "nivel_cierre", "precio_disparo", "deslizamiento_usd", "deslizamiento_pct", "comision_usd"];
+// Spec 004 (T-3): van después de las de la 003.
+const COLUMNAS_004 = [
+  "proponente", "modo", "motivo_modo", "pnl_a_nivel_usd", "pnl_a_nivel_pct", "hip_resultado", "hip_tocado_en",
+  "hip_pnl_a_nivel_usd", "hip_pnl_a_nivel_pct", "hip_etiqueta_exito", "hip_huecos",
+];
 
 beforeAll(async () => {
   await reiniciarBase();
@@ -53,7 +58,7 @@ describe("v_dataset con R11 (AC-10)", () => {
   it("la fila mantiene las columnas anteriores, en su orden, y agrega las nuevas al final", async () => {
     const { rows, fields } = await e.pool.query("SELECT * FROM v_dataset LIMIT 1");
     expect(rows).toHaveLength(1);
-    expect(fields.map((c) => c.name)).toEqual([...COLUMNAS_VIEJAS, ...COLUMNAS_NUEVAS]);
+    expect(fields.map((c) => c.name)).toEqual([...COLUMNAS_VIEJAS, ...COLUMNAS_NUEVAS, ...COLUMNAS_004]);
   });
 });
 

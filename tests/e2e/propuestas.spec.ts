@@ -33,7 +33,7 @@ for (const m of MEDIDAS) {
       await expect(lista(page, m.ancho)).toHaveCount(4);
       if (m.ancho >= 768) {
         const cabeceras = await page.getByRole("columnheader").allTextContents();
-        expect(cabeceras.map((c) => c.trim()).filter(Boolean)).toEqual(["Hora (UTC−6)", "Activo", "Lado", "Tamaño", "Decisión", "Estado o motivo", "PnL", "Ver detalle"]);
+        expect(cabeceras.map((c) => c.trim()).filter(Boolean)).toEqual(["Hora (UTC−6)", "Activo", "Proponente", "Lado", "Tamaño", "Decisión", "Estado o motivo", "PnL", "Ver detalle"]);
       }
       const enFilas = lista(page, m.ancho);
       await expect(enFilas.getByText("R3 tamaño: 1,001.00 USD > límite 1,000.00 USD")).toBeVisible();
@@ -193,6 +193,7 @@ for (const m of MEDIDAS) {
       expect(await graves(page)).toEqual([]);
       await enlaceFila(page, "BTC/USD").click();
       await expect(page.getByRole("heading", { name: "Ejecución del ciclo" })).toBeVisible();
+      await expect(page).toHaveTitle(/Propuesta/); // el título llega en streaming; axe lo exige (document-title)
       await sinScrollHorizontal(page);
       expect(await graves(page)).toEqual([]);
     });

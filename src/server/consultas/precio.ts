@@ -87,6 +87,8 @@ export async function seriePrecio(activo: Activo, rango: Rango, ahora: Date): Pr
 
 type FilaLote = {
   propuesta_id: string;
+  proponente: "ciclo" | "decisor";
+  confianza_decision: string | null;
   numero: string | null;
   abierto_en: Marca;
   precio_entrada: string;
@@ -116,7 +118,8 @@ export async function operacionesPrecio(activo: Activo, rango: Rango, ahora: Dat
 
   const [lotes, abiertas] = await Promise.all([
     filas<FilaLote>(
-      sql`SELECT l.propuesta_id, n.numero::text AS numero, l.abierto_en, l.precio_entrada::text AS precio_entrada,
+      sql`SELECT l.propuesta_id, CASE WHEN p.proponente = 'decisor' THEN 'decisor' ELSE 'ciclo' END AS proponente,
+            dc.confianza::text AS confianza_decision, n.numero::text AS numero, l.abierto_en, l.precio_entrada::text AS precio_entrada,
             l.nocional_entrada_usd::text AS nocional, l.cantidad_llenada::text AS cantidad,
             p.justificacion->'resultado'->>'close_ultimo' AS cierre,
             p.justificacion->'resultado'->>'close_previo' AS cierre_previo,
@@ -126,6 +129,7 @@ export async function operacionesPrecio(activo: Activo, rango: Rango, ahora: Dat
             l.pnl_neto_usd::text AS pnl_usd, l.pnl_neto_pct::text AS pnl_pct, l.duracion_s
           FROM v_lotes l
           JOIN propuestas p ON p.id = l.propuesta_id
+          LEFT JOIN decisiones dc ON dc.id = p.decision_id
           LEFT JOIN (
             SELECT id, row_number() OVER (ORDER BY abierto_en, id) AS numero
             FROM v_lotes WHERE activo = ${activo} AND estado = 'abierto'
@@ -147,6 +151,8 @@ export async function operacionesPrecio(activo: Activo, rango: Rango, ahora: Dat
       propuestaId: l.propuesta_id,
       numero: l.numero === null ? null : Number(l.numero),
       entrada: {
+        proponente: l.proponente,
+        confianza: l.confianza_decision,
         t: iso(l.abierto_en),
         precio: l.precio_entrada,
         nocionalUsd: l.nocional,

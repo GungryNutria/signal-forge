@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import type { ReactNode } from "react";
 import { detallePropuesta } from "@/server/consultas/propuestas";
 import type { DetallePropuesta, OrdenVista, ReglaDetalle } from "@/server/consultas/tipos";
 import { conHora } from "../_lib/datos";
@@ -11,6 +10,7 @@ import {
   horaConSegundos,
   momento,
   momentoUtc,
+  NOMBRE_PROPONENTE,
   NOMBRE_REGLA,
   pct,
   signo,
@@ -20,12 +20,15 @@ import {
   valorRegla,
 } from "../_lib/formato";
 import { esActivo } from "@/core/activos";
-import { paramV, vienedeEjecuciones, vienedePrecio, volverAEjecuciones, volverAPrecio, volverAPropuestas, type Params } from "../_lib/params";
+import { paramV, vienedeEjecuciones, vienedeMetricas, vienedePrecio, volverAEjecuciones, volverAMetricas, volverAPrecio, volverAPropuestas, type Params } from "../_lib/params";
 import { hrefPrecio, rangoQueIncluye } from "../_lib/precio";
 import { Alerta } from "./alerta";
 import { Barra, Cargando } from "./esqueleto";
 import { ChipDecision, ChipOperacion } from "./estados";
 import { Chip } from "./chip";
+import { ContextoDelDecisor } from "./contexto-decisor";
+import { Dato, Datos, Mono } from "./datos";
+import { DecisionDelDecisor } from "./decision-decisor";
 import { IconoChevron, IconoGrafica } from "./iconos";
 import { InvestigacionAdjunta } from "./investigacion-adjunta";
 import { leerResultado, ReglaEntrada } from "./regla-entrada";
@@ -33,19 +36,6 @@ import { Tarjeta, TituloBloque } from "./tarjeta";
 
 const LADO: Record<string, string> = { buy: "Compra", sell: "Venta" };
 const COLOR = { "-1": "text-neg", "0": "text-ink", "1": "text-pos" } as const;
-
-function Dato({ etiqueta, children }: { etiqueta: string; children: ReactNode }) {
-  return (
-    <div className="min-w-0">
-      <dt className="text-[13px] font-semibold text-muted">{etiqueta}</dt>
-      <dd className="text-sm [overflow-wrap:anywhere]">{children}</dd>
-    </div>
-  );
-}
-const Datos = ({ children }: { children: ReactNode }) => (
-  <dl className="grid grid-cols-2 gap-x-6 gap-y-3 md:flex md:flex-wrap md:gap-x-10">{children}</dl>
-);
-const Mono = ({ children }: { children: ReactNode }) => <span className="font-mono text-[13px]">{children}</span>;
 
 export const Volver = ({ href, texto }: { href: string; texto: string }) => (
   <Link href={href} className="mb-4 inline-flex min-h-11 items-center gap-1 text-sm font-semibold text-accent">
@@ -91,6 +81,7 @@ function Cabecera({ d, ahora }: { d: DetallePropuesta; ahora: Date }) {
         {d.estado ? <ChipOperacion estado={d.estado} /> : null}
       </p>
       <Datos>
+        <Dato etiqueta="Proponente">{NOMBRE_PROPONENTE[d.proponente]}</Dato>
         <Dato etiqueta="Activo">{d.activo ?? "—"}</Dato>
         <Dato etiqueta="Lado">{LADO[d.lado ?? ""] ?? "—"}</Dato>
         <Dato etiqueta="Tamaño">{tamano(d)}</Dato>
@@ -298,6 +289,8 @@ function Salida({ s }: { s: SalidaVista }) {
 
 function Etiqueta({ d }: { d: DetallePropuesta }) {
   const e = d.etiqueta;
+  // AC-UX-6: con el decisor, el PnL a nivel va junto al neto. No es dinero real: en tinta neutra, sin signo de color.
+  const aNivel = d.proponente === "decisor" ? d.salida : null;
   return (
     <Tarjeta>
       <TituloBloque>Etiqueta de resultado</TituloBloque>
@@ -326,6 +319,11 @@ function Etiqueta({ d }: { d: DetallePropuesta }) {
                   {usdConSigno(e.pnlNetoUsd)}
                   {e.pnlNetoPct !== null ? ` (${pct(Number(e.pnlNetoPct) * 100, 2)})` : ""}
                 </span>
+              </Dato>
+            ) : null}
+            {aNivel ? (
+              <Dato etiqueta="PnL a nivel (comparable)">
+                {usdConSigno(aNivel.pnlANivelUsd)} ({pct(Number(aNivel.pnlANivelPct) * 100, 2)})
               </Dato>
             ) : null}
             {e.duracionMin !== null ? <Dato etiqueta="Duración">{e.duracionMin} min</Dato> : null}
@@ -372,6 +370,7 @@ export async function DetallePropuestaVista({ params, searchParams }: { params: 
   const v = paramV(sp);
   const deEjecuciones = vienedeEjecuciones(sp);
   const dePrecio = vienedePrecio(sp);
+  const deMetricas = vienedeMetricas(sp);
   const { ahora, datos: d } = await conHora(() => detallePropuesta(id))();
   if (d === null) notFound();
 
@@ -379,21 +378,39 @@ export async function DetallePropuestaVista({ params, searchParams }: { params: 
   return (
     <div className="flex flex-col gap-6">
       <Volver
-        href={dePrecio ? `/precio${volverAPrecio(v)}` : deEjecuciones ? `/ejecuciones${volverAEjecuciones(v)}` : `/propuestas${volverAPropuestas(v)}`}
-        texto={dePrecio ? "Precio" : deEjecuciones ? "Ejecuciones" : "Propuestas"}
+        href={
+          dePrecio
+            ? `/precio${volverAPrecio(v)}`
+            : deMetricas
+              ? `/metricas${volverAMetricas(v)}`
+              : deEjecuciones
+                ? `/ejecuciones${volverAEjecuciones(v)}`
+                : `/propuestas${volverAPropuestas(v)}`
+        }
+        texto={dePrecio ? "Precio" : deMetricas ? "Métricas" : deEjecuciones ? "Ejecuciones" : "Propuestas"}
       />
       <Cabecera d={d} ahora={ahora} />
-      <ReglaEntrada
-        version={d.versionRegla}
-        resultado={leerResultado(regla?.resultado)}
-        sinDatos="Esta propuesta no trae una regla de entrada evaluada."
-      />
+      {d.decisor ? (
+        <DecisionDelDecisor d={d.decisor.decision} />
+      ) : (
+        <ReglaEntrada
+          version={d.versionRegla}
+          resultado={leerResultado(regla?.resultado)}
+          sinDatos="Esta propuesta no trae una regla de entrada evaluada."
+        />
+      )}
       <ReglasRiesgo reglas={d.reglas} conjunto={d.reglasAplicadas} />
       <RespuestaBroker d={d} />
       {d.salida ? <Salida s={d.salida} /> : null}
       <Etiqueta d={d} />
-      <InvestigacionAdjunta activo={d.activo} inv={d.investigacion} />
-      <Ejecucion d={d} />
+      {d.decisor ? (
+        <ContextoDelDecisor contexto={d.decisor.contexto} />
+      ) : (
+        <>
+          <InvestigacionAdjunta activo={d.activo} inv={d.investigacion} />
+          <Ejecucion d={d} />
+        </>
+      )}
     </div>
   );
 }

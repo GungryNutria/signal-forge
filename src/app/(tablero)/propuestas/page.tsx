@@ -11,7 +11,7 @@ export default function Propuestas({ searchParams }: PageProps<"/propuestas">) {
     <div className="flex flex-col gap-2">
       <h1 className="text-2xl leading-[1.25] font-semibold">Propuestas</h1>
       <p className="mb-4 text-sm text-muted">
-        Todo lo que propuso el ciclo y qué pasó. Las evaluaciones sin señal están en Ejecuciones.
+        Todo lo que propusieron el ciclo y el decisor, y qué pasó. Las evaluaciones sin señal y las decisiones sin propuesta están en Ejecuciones.
       </p>
       <Suspense fallback={<PropuestasEsqueleto />}>
         <ContenidoPropuestas searchParams={searchParams} />

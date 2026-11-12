@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
-import { basicValido, hashToken, tokenValido } from "./auth";
+import { basicValido, hashToken, identificarToken, tokenValido } from "./auth";
 
 const TOKEN = `sfi_${"A".repeat(43)}`;
 const HASH = hashToken(TOKEN);
@@ -27,6 +27,27 @@ describe("tokenValido", () => {
   });
 });
 
+describe("identificarToken (REQ-1 de 004)", () => {
+  const DECISOR = `sfd_${"D".repeat(43)}`;
+  const hashes = { investigador: HASH, decisor: hashToken(DECISOR) };
+  it("identifica el rol por prefijo y hash", () => {
+    expect(identificarToken(`Bearer ${TOKEN}`, hashes)).toBe("investigador");
+    expect(identificarToken(`Bearer ${DECISOR}`, hashes)).toBe("decisor");
+  });
+  it.each([
+    ["sin cabecera", null],
+    ["token revocado (otro hash)", `Bearer sfd_${"E".repeat(43)}`],
+    ["prefijo que no corresponde a su hash", `Bearer sfi_${"D".repeat(43)}`],
+    ["prefijo desconocido", `Bearer sfx_${"D".repeat(43)}`],
+  ])("da null con %s", (_nombre, cabecera) => {
+    expect(identificarToken(cabecera, hashes)).toBeNull();
+  });
+  it("sin el hash de su rol configurado, o inválido, nadie entra con ese rol", () => {
+    expect(identificarToken(`Bearer ${DECISOR}`, { investigador: HASH })).toBeNull();
+    expect(identificarToken(`Bearer ${DECISOR}`, { decisor: "no-es-hex" })).toBeNull();
+  });
+});
+
 describe("basicValido", () => {
   it("acepta usuario y contraseña (la contraseña puede llevar ':')", () => {
     expect(basicValido(basic("edgar", "p:a:ss"), "edgar", "p:a:ss")).toBe(true);
@@ -43,6 +64,16 @@ describe("basicValido", () => {
   it("sin credenciales configuradas niega todo (falla cerrado)", () => {
     expect(basicValido(basic("", ""), "", "")).toBe(false);
     expect(basicValido(basic("a", "b"), undefined, undefined)).toBe(false);
+  });
+});
+
+describe("scripts/generar-token.mjs --decisor", () => {
+  it("imprime un token sfd_ y su SHA-256 verificable", () => {
+    const salida = execFileSync("node", ["scripts/generar-token.mjs", "--decisor"], { encoding: "utf8" });
+    const token = salida.match(/^(sfd_[A-Za-z0-9_-]{43})$/m)?.[1];
+    expect(token).toBeDefined();
+    expect(salida.match(/^([0-9a-f]{64})$/m)?.[1]).toBe(hashToken(token!));
+    expect(salida).toContain("DECISOR_TOKEN_SHA256");
   });
 });
 

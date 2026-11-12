@@ -3,7 +3,7 @@ import { proximaEjecucion, proximaInvestigacion } from "@/core/tiempo";
 import { listarPropuestas } from "@/server/consultas/propuestas";
 import type { FilaPropuesta } from "@/server/consultas/tipos";
 import { cartera, conHora } from "../_lib/datos";
-import { cripto, hora, horaCorta, unidad, usd } from "../_lib/formato";
+import { cripto, hora, horaCorta, NOMBRE_PROPONENTE, unidad, usd } from "../_lib/formato";
 import { consulta, DECISIONES, ESTADOS, leerPropuestas, type Params } from "../_lib/params";
 import { BloqueConError } from "./bloque";
 import { Barra, Cargando } from "./esqueleto";
@@ -46,12 +46,19 @@ async function Vacia({ filtrado }: { filtrado: boolean }) {
 
 export async function ContenidoPropuestas({ searchParams }: { searchParams: Promise<Params> }) {
   const { filtro, valores } = leerPropuestas(await searchParams);
-  const filtrado = Boolean(valores.activo || valores.decision || valores.estado);
+  const filtrado = Boolean(valores.proponente || valores.activo || valores.decision || valores.estado);
   const sufijo = `?v=${encodeURIComponent(consulta(valores).slice(1))}`;
   const otros = (sin: string) => ({ ...valores, [sin]: undefined });
   return (
     <>
       <Tarjeta className="mb-6 flex flex-col gap-4 md:flex-row md:flex-wrap md:items-end md:gap-x-10">
+        <GrupoChips
+          nombre="proponente"
+          etiqueta="Proponente"
+          actual={valores.proponente}
+          otros={otros("proponente")}
+          opciones={[{ valor: "", texto: "Todos" }, { valor: "ciclo", texto: "Ciclo" }, { valor: "decisor", texto: "Decisor" }]}
+        />
         <GrupoChips
           nombre="activo"
           etiqueta="Activo"
@@ -123,6 +130,7 @@ async function Tabla({
               <tr className="bg-sunken text-[13px] font-semibold">
                 <th scope="col" className="px-2 py-2 text-left">Hora (UTC−6)</th>
                 <th scope="col" className="px-2 py-2 text-left">Activo</th>
+                <th scope="col" className="px-2 py-2 text-left">Proponente</th>
                 <th scope="col" className="px-2 py-2 text-left">Lado</th>
                 <th scope="col" className="px-2 py-2 text-right">Tamaño</th>
                 <th scope="col" className="px-2 py-2 text-left">Decisión</th>
@@ -136,6 +144,7 @@ async function Tabla({
                 <tr key={f.id} className="relative min-h-10 border-b border-line last:border-0 hover:bg-sunken">
                   <td className="px-2 py-2"><Enlace f={f} sufijo={sufijo}>{horaCorta(f.recibidaEn)}</Enlace></td>
                   <td className="px-2 py-2 font-semibold">{f.activo ?? "—"}</td>
+                  <td className="px-2 py-2">{NOMBRE_PROPONENTE[f.proponente]}</td>
                   <td className="px-2 py-2">{(f.lado && LADO[f.lado]) ?? "—"}</td>
                   <td className="px-2 py-2 text-right whitespace-nowrap">{tamano(f)}</td>
                   <td className="px-2 py-2"><ChipDecision decision={f.decision} /></td>
@@ -159,7 +168,7 @@ async function Tabla({
                     </p>
                     <ChipDecision decision={f.decision} />
                   </div>
-                  <p className="text-muted">{(f.lado && LADO[f.lado]) ?? "—"} · {tamano(f)}</p>
+                  <p className="text-muted">{NOMBRE_PROPONENTE[f.proponente]} · {(f.lado && LADO[f.lado]) ?? "—"} · {tamano(f)}</p>
                   <div className="min-w-0 [overflow-wrap:anywhere]"><EstadoOMotivo f={f} /></div>
                   <div className="text-sm"><Pnl f={f} abiertos={abiertos} movil /></div>
                 </div>

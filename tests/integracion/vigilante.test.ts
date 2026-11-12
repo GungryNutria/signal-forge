@@ -291,3 +291,30 @@ describe("R11 no afecta a las salidas (spec 003, AC-7, AC-9, RNF-4)", () => {
     expect(await q("SELECT 1 FROM cierres_lote WHERE motivo_cierre = 'stop_loss'")).toHaveLength(4);
   });
 });
+
+// REQ-20, RNF-7: cada lectura del vigilante deja una muestra del bid y el ask, sin duplicar quotes que no cambian.
+describe("muestras de precio (REQ-20)", () => {
+  const muestras = () => q("SELECT activo, bid, ask, fuente_ts FROM muestras_precio ORDER BY activo, fuente_ts");
+
+  it("guarda una muestra por activo y no duplica un quote que no cambió", async () => {
+    ponerBid(100_000, 200);
+    await ejecutarVigilante(deps());
+    await ejecutarVigilante(deps());
+    const filas = await muestras();
+    expect(filas.map((f) => [f.activo, Number(f.bid), Number(f.ask)])).toEqual([["BTC/USD", 100_000, 100_001], ["SOL/USD", 200, 201]]);
+    expect(filas[0].fuente_ts).toEqual(AHORA);
+  });
+
+  it("un quote nuevo agrega una muestra y el fallo de lectura no agrega ninguna", async () => {
+    ponerBid(100_000);
+    await ejecutarVigilante(deps());
+    ahora = new Date(AHORA.getTime() + 60_000);
+    ponerBid(100_500);
+    await ejecutarVigilante(deps());
+    expect((await muestras()).filter((f) => f.activo === "BTC/USD").map((f) => Number(f.bid))).toEqual([100_000, 100_500]);
+    const antes = (await muestras()).length;
+    datos.instantaneas = {};
+    await ejecutarVigilante(deps());
+    expect(await muestras()).toHaveLength(antes);
+  });
+});

@@ -1,5 +1,5 @@
-import type { Decision, EstadoEjecucion, EstadoOperacion, ResultadoActivo } from "@/server/consultas/tipos";
-import { nombreCorto } from "../_lib/formato";
+import type { Decision, EstadoEjecucion, EstadoOperacion, EstadoRanura, ResultadoActivo, ResultadoDecisorActivo } from "@/server/consultas/tipos";
+import { motivoDecision, nombreCorto } from "../_lib/formato";
 import { Chip, type Tono } from "./chip";
 
 // Vocabulario fijo de la spec (Criterios de UX): se escribe palabra por palabra, igual en todas las superficies.
@@ -46,6 +46,8 @@ export function ChipResultado({ r }: { r: ResultadoActivo | null }) {
       return <Chip tono="warn">Datos no disponibles</Chip>;
     case "error":
       return <Chip tono="neg">Error</Chip>;
+    case "senal_registrada":
+      return <Chip>Señal (solo registro)</Chip>;
   }
 }
 
@@ -63,9 +65,46 @@ export function textoResultado(r: ResultadoActivo | null): string {
       return "Datos no disponibles";
     case "error":
       return "Error";
+    case "senal_registrada":
+      return "Señal (solo registro)";
   }
 }
 
 export const textoOperacion = (e: EstadoOperacion): string => OPERACION[e].texto;
 
 export const esOmitida =(estado: EstadoEjecucion) => estado === "omitida_solapamiento";
+
+const RANURA: Record<EstadoRanura, { texto: string; tono: Tono }> = {
+  completa: { texto: "Completa", tono: "neutro" },
+  parcial: { texto: "Parcial", tono: "warn" },
+  invalida: { texto: "Inválida", tono: "warn" },
+  sin_llegar: { texto: "Sin llegar", tono: "warn" },
+  apagado: { texto: "Apagado", tono: "neutro" },
+};
+export const ChipRanura = ({ estado }: { estado: EstadoRanura }) => <Chip tono={RANURA[estado].tono}>{RANURA[estado].texto}</Chip>;
+
+/** Resultado de un activo en una ranura del decisor (REQ-26): "No comprar" es neutro, nunca error ni alerta. */
+function vistaDecisor(r: ResultadoDecisorActivo): { texto: string; tono: Tono } {
+  switch (r.tipo) {
+    case "comprar": {
+      if (r.propuesta === null) return { texto: "Comprar (solo registro)", tono: "neutro" };
+      const d = DECISION[r.propuesta.decision];
+      const regla = r.propuesta.reglaPrincipal ? ` (${nombreCorto(r.propuesta.reglaPrincipal)})` : "";
+      return { texto: `Comprar: ${d.texto}${r.propuesta.decision === "rechazada" ? regla : ""}`, tono: d.tono };
+    }
+    case "comprar_rechazada":
+      return { texto: `Comprar: Rechazada (${motivoDecision(r.motivo)})`, tono: "neutro" };
+    case "no_comprar":
+      return { texto: "No comprar", tono: "neutro" };
+    case "invalida":
+      return { texto: `Inválida (${motivoDecision(r.motivo)})`, tono: "warn" };
+    case "sin_decision":
+      return { texto: "Sin decisión", tono: "neutro" };
+  }
+}
+/** Texto plano del resultado de una ranura, para nombres accesibles. */
+export const textoResultadoDecisor = (r: ResultadoDecisorActivo): string => vistaDecisor(r).texto;
+export function ChipResultadoDecisor({ r }: { r: ResultadoDecisorActivo }) {
+  const v = vistaDecisor(r);
+  return <Chip tono={v.tono}>{v.texto}</Chip>;
+}

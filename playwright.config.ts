@@ -47,5 +47,14 @@ export default defineConfig({
     iniciar(PUERTOS.fallaSeriePrecio, { SF_FALLA_INYECTADA: "seriePrecio" }),
     iniciar(PUERTOS.fallaOperacionesPrecio, { SF_FALLA_INYECTADA: "operacionesPrecio" }),
     iniciar(PUERTOS.tope2, { MAX_ENTRADAS_ABIERTAS_POR_ACTIVO: "2" }), // AC-UX-6: S1 frente a un tope de 2
+    // Spec 004: los modos se leen al arrancar, así que cada combinación lleva su servidor.
+    iniciar(PUERTOS.decisorEjecuta, { MODO_CICLO: "solo_registra", MODO_DECISOR: "ejecuta" }),
+    iniciar(PUERTOS.decisorSoloRegistra, { MODO_CICLO: "ejecuta", MODO_DECISOR: "solo_registra" }),
+    iniciar(PUERTOS.dosEjecutan, { MODO_CICLO: "ejecuta", MODO_DECISOR: "ejecuta" }),
+    iniciar(PUERTOS.decisorSinR11, { MODO_CICLO: "solo_registra", MODO_DECISOR: "ejecuta", MAX_ENTRADAS_ABIERTAS_POR_ACTIVO: "0" }),
+    iniciar(PUERTOS.cicloSoloRegistra, { MODO_CICLO: "solo_registra" }),
+    iniciar(PUERTOS.modosInvalidos, { MODO_CICLO: "desconocido" }),
+    iniciar(PUERTOS.fallaComparacion, { MODO_CICLO: "solo_registra", MODO_DECISOR: "ejecuta", SF_FALLA_INYECTADA: "comparacion" }),
+    iniciar(PUERTOS.fallaRanuras, { MODO_CICLO: "solo_registra", MODO_DECISOR: "ejecuta", SF_FALLA_INYECTADA: "listarRanuras" }),
   ],
 });

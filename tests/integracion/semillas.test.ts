@@ -41,6 +41,12 @@ const ESPERADOS = [
   "r11-tope",
   "r11-dos-proponentes",
   "deslizamiento",
+  "decisor-decisiones",
+  "decisor-ranuras",
+  "decisor-alerta",
+  "decisor-comparacion",
+  "decisor-inyeccion",
+  "ciclo-solo-registra",
 ];
 
 let pool: Pool;

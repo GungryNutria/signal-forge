@@ -16,6 +16,15 @@ export const PUERTOS = {
   fallaSeriePrecio: 3200,
   fallaOperacionesPrecio: 3201,
   tope2: 3202,
+  // Spec 004: un servidor por combinación de MODO_CICLO y MODO_DECISOR (se leen al arrancar).
+  decisorEjecuta: 3203, // ciclo solo registra, decisor ejecuta
+  decisorSoloRegistra: 3204, // ciclo ejecuta, decisor solo registra
+  dosEjecutan: 3205, // configuración inválida (REQ-16)
+  decisorSinR11: 3206, // decisor ejecuta, pero N inválida: opera en solo registra (REQ-17)
+  cicloSoloRegistra: 3207, // ciclo solo registra, decisor apagado
+  modosInvalidos: 3208, // variable de modo con un valor que no existe
+  fallaComparacion: 3209, // AC-UX-18: falla la comparación de S4, no Cartera ni la banda
+  fallaRanuras: 3210, // AC-UX-18: falla el historial de S5 Decisor, no Ciclo ni la banda
 } as const;
 
 export const BASE = process.env.E2E_DATABASE_URL;
@@ -54,6 +63,65 @@ export async function agregarEjecucion(estado: "completada" | "error" | "omitida
   } finally {
     await pool.end();
   }
+}
+
+/** Registra un cambio de modos con el decisor activo desde hace `hace` min (lo que hace el ciclo al arrancar, REQ-33). */
+export async function agregarModos(hace: number) {
+  const pool = new Pool({ connectionString: BASE, max: 1 });
+  try {
+    const modo = { configurado: "ejecuta", efectivo: "ejecuta", motivo: null };
+    await pool.query("INSERT INTO eventos (momento, tipo, detalle) VALUES ($1, 'modo_proponentes', $2)", [
+      new Date(Date.now() - hace * 60_000),
+      JSON.stringify({ ciclo: { ...modo, configurado: "solo_registra", efectivo: "solo_registra" }, decisor: modo }),
+    ]);
+  } finally {
+    await pool.end();
+  }
+}
+
+/** Cambia los modos del decisor y del ciclo desde hace `hace` min (un evento más, como el que escribe el ciclo al arrancar). */
+export async function cambiarModos(hace: number, modos: { ciclo: string; decisor: string }) {
+  const pool = new Pool({ connectionString: BASE, max: 1 });
+  try {
+    const modo = (m: string) => ({ configurado: m, efectivo: m, motivo: null });
+    await pool.query("INSERT INTO eventos (momento, tipo, detalle) VALUES ($1, 'modo_proponentes', $2)", [
+      new Date(Date.now() - hace * 60_000),
+      JSON.stringify({ ciclo: modo(modos.ciclo), decisor: modo(modos.decisor) }),
+    ]);
+  } finally {
+    await pool.end();
+  }
+}
+
+/** Lee la base de E2E (para llegar a una decisión que ninguna lista enlaza, como una inválida sin activo). */
+export async function consultarBase<T extends Record<string, unknown>>(texto: string, valores: unknown[] = []): Promise<T[]> {
+  const pool = new Pool({ connectionString: BASE, max: 1 });
+  try {
+    return (await pool.query(texto, valores)).rows as T[];
+  } finally {
+    await pool.end();
+  }
+}
+
+type Tasa = { pct: string; aciertos: number; cerradas: number };
+type CifrasConocidas = {
+  decisor: {
+    entradas: number; cerradas: number; tasa: Tasa; pnlANivelUsd: string; pnlNetoRealUsd: string;
+    evitadas: { total: number; stopLoss: number; takeProfit: number; pendientes: number; sinPrecio: number };
+  };
+  regla: { senales: number; cuentan: number; bloqueadasPorTope: number; cerradas: number; tasa: Tasa; pnlANivelUsd: string; pendientes: number };
+  coincidencia: { senalCompro: number; senalNoCompro: number; sinSenalCompro: number; sinSenalNoCompro: number };
+};
+
+/** `COMPARACION_CONOCIDA` y `RANURAS_CONOCIDAS` de `scripts/sembrar.ts` (spec 004), por el mismo camino que `precioConocido`. */
+export function conocidasDecisor(): {
+  comparacion: { topeN: number; activacion: CifrasConocidas; d7: CifrasConocidas; btc: CifrasConocidas };
+  ranuras: { h24: { completas: number; total: number; pct: string }; d7: { completas: number; total: number; pct: string }; estados: Record<string, string> };
+} {
+  const codigo = `import { COMPARACION_CONOCIDA as C, RANURAS_CONOCIDAS as R } from "./scripts/sembrar";
+console.log(JSON.stringify({ comparacion: C, ranuras: R }));`;
+  const salida = execFileSync(process.execPath, ["node_modules/tsx/dist/cli.mjs", "--eval", codigo], { env: { ...process.env, APP_ENV: "test" }, encoding: "utf8" });
+  return JSON.parse(salida.trim().split("\n").at(-1) as string);
 }
 
 export const MEDIDAS = [

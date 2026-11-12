@@ -4,6 +4,7 @@ import { DatosSimulados } from "@/server/broker/simulado";
 import { procesarPropuesta } from "@/server/propuestas/procesar";
 import { reiniciarBase } from "./arnes";
 import { AHORA, compra, crearEntorno } from "./ayudas";
+import { contexto, crearEntornoDecisor, decisionValida, enviarDecision } from "./ayudas-decisor";
 
 // AC-13: la misma clave en paralelo produce una sola orden. Además, el candado global hace consistente R4
 // entre decisiones simultáneas.
@@ -89,6 +90,29 @@ describe("concurrencia del ciclo", () => {
       expect(c.broker.registradas).toHaveLength(2);
     } finally {
       await c.pool.end();
+    }
+  });
+});
+
+describe("concurrencia de las decisiones del decisor (AC-6)", () => {
+  it("10 envíos iguales a la vez: una decisión original, una propuesta y a lo más una orden", async () => {
+    await reiniciarBase();
+    const d = crearEntornoDecisor();
+    try {
+      const c = await contexto(d);
+      const cuerpo = decisionValida(c.id);
+      const rs = await Promise.all(Array.from({ length: 10 }, () => enviarDecision(d, cuerpo)));
+      expect(rs.map((r) => r.status).sort()).toEqual([200, 200, 200, 200, 200, 200, 200, 200, 200, 201]);
+      expect(d.ordenesEnviadas()).toBeLessThanOrEqual(1);
+      expect(d.broker.registradas).toHaveLength(1);
+      expect((await d.pool.query("SELECT 1 FROM decisiones WHERE es_original")).rowCount).toBe(1);
+      expect((await d.pool.query("SELECT 1 FROM decisiones")).rowCount).toBe(1);
+      expect((await d.pool.query("SELECT 1 FROM propuestas")).rowCount).toBe(1);
+      expect((await d.pool.query("SELECT 1 FROM ordenes")).rowCount).toBe(1);
+      const cuerpos = await Promise.all(rs.map((r) => r.json()));
+      expect(new Set(cuerpos.map((b) => b.propuesta?.id)).size).toBe(1);
+    } finally {
+      await d.pool.end();
     }
   });
 });
