@@ -376,3 +376,77 @@ export const lecturasMercado = pgTable("lecturas_mercado", {
   ultimoErrorEn: ts("ultimo_error_en"),
   ultimoError: text("ultimo_error"),
 });
+
+// Ranuras del decisor ya terminadas (REQ-26): las cierra `seguimiento`, una fila por ranura, nunca se modifica.
+export const ranurasDecisor = pgTable(
+  "ranuras_decisor",
+  {
+    ranura: ts("ranura").primaryKey(),
+    cerradaEn: ts("cerrada_en").notNull().defaultNow(),
+    estado: text("estado").notNull(),
+    detalle: jsonb("detalle").notNull(),
+  },
+  (t) => [
+    check("ranuras_decisor_estado_ck", sql`${t.estado} IN ('completa','parcial','invalida','sin_llegar','apagado')`),
+  ],
+);
+
+// Bid y ask que lee `guardarLectura` (vigilante y ciclo); con ellos se resuelven los hipotéticos (D-3). Append-only.
+export const muestrasPrecio = pgTable(
+  "muestras_precio",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    activo: text("activo").notNull(),
+    fuenteTs: ts("fuente_ts").notNull(),
+    bid: cant("bid").notNull(),
+    ask: cant("ask").notNull(),
+    leidoEn: ts("leido_en").notNull(),
+  },
+  (t) => [
+    uniqueIndex("muestras_precio_activo_fuente_uq").on(t.activo, t.fuenteTs),
+    check("muestras_precio_activo_ck", sql`${t.activo} IN ${ACTIVOS}`),
+  ],
+);
+
+// Resultado hipotético (REQ-20) de una señal registrada o de una entrada evitada. Una fila solo cuando se resuelve.
+export const resultadosHipoteticos = pgTable(
+  "resultados_hipoteticos",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    origen: text("origen").notNull(),
+    evaluacionId: uuid("evaluacion_id")
+      .unique()
+      .references(() => evaluaciones.id),
+    decisionId: uuid("decision_id")
+      .unique()
+      .references(() => decisiones.id),
+    activo: text("activo").notNull(),
+    t0: ts("t0").notNull(),
+    precioEntrada: cant("precio_entrada"),
+    nocionalUsd: usd("nocional_usd").notNull(),
+    stopLoss: cant("stop_loss"),
+    takeProfit: cant("take_profit"),
+    comisionBps: integer("comision_bps").notNull(),
+    resultado: text("resultado").notNull(),
+    tocadoEn: ts("tocado_en"),
+    precioToque: cant("precio_toque"),
+    pnlANivelUsd: usd("pnl_a_nivel_usd"),
+    pnlANivelPct: numeric("pnl_a_nivel_pct", { precision: 10, scale: 6 }),
+    etiquetaExito: smallint("etiqueta_exito"),
+    huecos: jsonb("huecos").notNull().default(sql`'[]'::jsonb`),
+    version: text("version").notNull(),
+    calculadoEn: ts("calculado_en").notNull().defaultNow(),
+  },
+  (t) => [
+    check("resultados_hipoteticos_origen_ck", sql`${t.origen} IN ('senal_registrada','entrada_evitada')`),
+    check(
+      "resultados_hipoteticos_uno_ck",
+      sql`(${t.evaluacionId} IS NOT NULL) <> (${t.decisionId} IS NOT NULL)`,
+    ),
+    check(
+      "resultados_hipoteticos_resultado_ck",
+      sql`${t.resultado} IN ('take_profit','stop_loss','sin_precio_entrada')`,
+    ),
+    check("resultados_hipoteticos_activo_ck", sql`${t.activo} IN ${ACTIVOS}`),
+  ],
+);

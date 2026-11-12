@@ -54,6 +54,8 @@ export type OpcionesCierre = {
   reglas?: unknown[] | null;
   /** Con `true` la propuesta cuelga de una evaluación (la necesita `v_dataset`). */
   evaluacion?: boolean;
+  /** La propuesta nace de esta decisión del decisor (`v_dataset_decisor`). */
+  decisionId?: string;
 };
 
 export const reglasCumplen = (cuantas: 10 | 11) =>
@@ -75,9 +77,10 @@ export async function sembrarCierre(pool: Pool, o: OpcionesCierre): Promise<{ lo
   }
   const reglas = o.reglas === undefined ? reglasCumplen(11) : o.reglas;
   const [p] = await q(
-    `INSERT INTO propuestas (clave_idempotencia, es_original, evaluacion_id, activo, entrada_cruda, decision, motivo, reglas)
-     VALUES ($1, true, $2, 'BTC/USD', '{}', 'ejecutada', 'aprobada', $3) RETURNING id`,
-    [`sembrada:${o.n}`, evaluacionId, reglas === null ? null : JSON.stringify(reglas)],
+    // Sin `decisionId` no se menciona la columna: así también sirve contra el esquema anterior a la migración 0005.
+    `INSERT INTO propuestas (clave_idempotencia, es_original, evaluacion_id, activo, entrada_cruda, decision, motivo, reglas${o.decisionId ? ", decision_id" : ""})
+     VALUES ($1, true, $2, 'BTC/USD', '{}', 'ejecutada', 'aprobada', $3${o.decisionId ? ", $4" : ""}) RETURNING id`,
+    [`sembrada:${o.n}`, evaluacionId, reglas === null ? null : JSON.stringify(reglas), ...(o.decisionId ? [o.decisionId] : [])],
   );
   const [oe] = await q(
     "INSERT INTO ordenes (propuesta_id, tramo, client_order_id, activo, lado, nocional_usd) VALUES ($1, 'entrada', $2, 'BTC/USD', 'buy', 500) RETURNING id",

@@ -3,7 +3,7 @@
 import { existsSync } from "node:fs";
 import { build } from "esbuild";
 
-const procesos = ["ciclo", "vigilante", "migrar", "dataset"].filter((p) => {
+const procesos = ["ciclo", "vigilante", "migrar", "dataset", "seguimiento"].filter((p) => {
   const hay = existsSync(`src/procesos/${p}.ts`);
   if (!hay) console.log(`build:procesos: omito ${p} (sin src/procesos/${p}.ts)`);
   return hay;

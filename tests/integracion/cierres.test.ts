@@ -66,3 +66,30 @@ describe("cierres anteriores a la medición (AC-14, REQ-15)", () => {
     expect((await pool.query("SELECT count(*)::int AS n FROM cierres_lote")).rows[0].n).toBe(antes);
   });
 });
+
+// AC-17 (REQ-21): el PnL a nivel es el de salir exactamente en el nivel; el PnL neto real se conserva aparte.
+describe("PnL a nivel (AC-17)", () => {
+  it("stop con llenado exacto: -2.49 % y es igual al PnL neto", async () => {
+    const { loteId } = await sembrarCierre(pool, { n: 5, motivo: "stop_loss", precioSalida: 98_000, pnlNetoUsd: -12.45 });
+    expect(await cierre(loteId)).toMatchObject({ pnl_a_nivel_usd: "-12.45", pnl_a_nivel_pct: "-0.024900", pnl_neto_usd: "-12.45" });
+  });
+
+  it("stop llenado por debajo del nivel: el PnL a nivel es el del nivel y el neto real se conserva", async () => {
+    const { loteId } = await sembrarCierre(pool, { n: 6, motivo: "stop_loss", precioSalida: 97_500, pnlNetoUsd: -14.93 });
+    expect(await cierre(loteId)).toMatchObject({ pnl_a_nivel_usd: "-12.45", pnl_a_nivel_pct: "-0.024900", pnl_neto_usd: "-14.93" });
+  });
+
+  it("take profit llenado por encima del nivel: +3.48 % a nivel y +19.89 neto", async () => {
+    const { loteId } = await sembrarCierre(pool, { n: 7, motivo: "take_profit", precioSalida: 104_500, pnlNetoUsd: 19.89 });
+    expect(await cierre(loteId)).toMatchObject({ pnl_a_nivel_usd: "17.40", pnl_a_nivel_pct: "0.034800", pnl_neto_usd: "19.89" });
+  });
+
+  it("las columnas de la 003 siguen en su lugar y las nuevas van al final", async () => {
+    const { fields } = await pool.query("SELECT * FROM v_cierres LIMIT 1");
+    expect(fields.map((f) => f.name)).toEqual([
+      "lote_id", "activo", "motivo_cierre", "cerrado_en", "precio_entrada", "precio_salida", "nocional_entrada_usd", "comision_bps",
+      "pnl_neto_usd", "pnl_neto_pct", "nivel", "precio_disparo", "precio_disparo_ts", "movimiento_usd", "deslizamiento_usd",
+      "deslizamiento_pct", "comision_usd", "pnl_a_nivel_usd", "pnl_a_nivel_pct",
+    ]);
+  });
+});

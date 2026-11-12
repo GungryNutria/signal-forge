@@ -43,6 +43,9 @@ const TABLAS = [
   "lecturas_mercado",
   "contextos_decisor",
   "decisiones",
+  "muestras_precio",
+  "resultados_hipoteticos",
+  "ranuras_decisor",
 ];
 
 /** Vacía todas las tablas sin recrear el esquema (más rápido que `reiniciarBase`). Pide superusuario: desactiva los triggers de solo inserción. */
