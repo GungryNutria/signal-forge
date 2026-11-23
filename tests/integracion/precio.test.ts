@@ -89,6 +89,31 @@ describe("seriePrecio (precio-serie)", () => {
   });
 });
 
+describe("seriePrecio con el ciclo en solo_registra (spec 004, REQ-18)", () => {
+  beforeAll(() => con("precio-serie"));
+
+  it("una vela con senal_registrada sigue en la serie y cierra el hueco", async () => {
+    // Rellena la ranura 15 de BTC/USD (sin ejecución en la semilla) con una señal registrada, copiando la foto de la 14.
+    const t15 = haceMin(K.btc.ultimoHace + (K.btc.total - 1 - 15) * 30);
+    const vela = new Date(Date.parse(t15) - 30 * MIN).toISOString();
+    const [ej] = (
+      await pool.query("INSERT INTO ejecuciones (ranura, inicio, version_regla) VALUES ($1, $1, 'tendencia-sma-v1') RETURNING id", [t15])
+    ).rows;
+    await pool.query(
+      `INSERT INTO evaluaciones (ejecucion_id, activo, evaluada_en, resultado, version_regla, foto, modo)
+       SELECT $1, activo, $2, 'senal_registrada', version_regla, jsonb_set(foto, '{mercado,ts_ultima_barra}', to_jsonb($3::text)), 'solo_registra'
+       FROM evaluaciones
+       WHERE activo = 'BTC/USD' AND (foto->'mercado'->>'ts_ultima_barra')::timestamptz = $3::timestamptz - interval '30 minutes'
+       LIMIT 1`,
+      [ej.id, t15, vela],
+    );
+    const s = await seriePrecio("BTC/USD", "24h", AHORA);
+    expect(s.puntos).toHaveLength(41);
+    expect(s.puntos.find((p) => p.t === t15)?.resultado).toBe("senal_registrada");
+    expect(s.puntos.filter((p) => p.hueco)).toHaveLength(1);
+  });
+});
+
 describe("operacionesPrecio (precio-operaciones)", () => {
   beforeAll(() => con("precio-operaciones"));
 

@@ -9,7 +9,7 @@ import { Chip } from "./chip";
 import { ChipOperacion } from "./estados";
 import { IconoChevron } from "./iconos";
 import { FormaMarca } from "./precio-comun";
-import { cuando, detalleDeMarca, entradaDe, NOMBRE_TIPO, tituloDeMarca } from "./precio-texto";
+import { cuando, detalleDeMarca, entradaDe, NOMBRE_TIPO, RESULTADO_PUNTO, tituloDeMarca } from "./precio-texto";
 
 // Panel de consulta de la gráfica (REQ-5, REQ-8, REQ-9, AC-UX-3, AC-UX-4). Va fuera del SVG y lo anuncia el lector de
 // pantalla (`role="status"`). En escritorio queda a la derecha; en móvil, debajo de la gráfica y antes de la leyenda.
@@ -53,7 +53,7 @@ function DePunto({ p }: { p: PuntoPrecio }) {
         <Fila t="SMA20">{usd(p.sma20)}</Fila>
         <Fila t="Cierre anterior">{usd(p.cierrePrevio)}</Fila>
         <Fila t="Resultado">
-          <Chip>{p.resultado === "propuesta" ? "Propuesta" : "Sin señal"}</Chip>
+          <Chip>{RESULTADO_PUNTO[p.resultado]}</Chip>
         </Fila>
       </Filas>
     </>
