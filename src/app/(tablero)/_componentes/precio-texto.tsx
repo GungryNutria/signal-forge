@@ -1,11 +1,18 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import type { OperacionesPrecio, SeriePrecio } from "@/server/consultas/tipos";
+import type { OperacionesPrecio, PuntoPrecio, SeriePrecio } from "@/server/consultas/tipos";
 import { confianza, dia, diaYHora, enUtc, hora, horaCorta, NOMBRE_PROPONENTE, pct, signo, usd, usdConSigno, zona } from "../_lib/formato";
 import { distanciaANiveles, hrefOperacion, type Marca, marcas, resumenSerie, type TipoMarca } from "../_lib/precio";
 import { IconoChevron } from "./iconos";
 import { FormaMarca } from "./precio-comun";
 import { Tarjeta, TituloBloque } from "./tarjeta";
+
+/** Rótulo del resultado de un punto de la serie (mismo texto que `ChipResultado`). */
+export const RESULTADO_PUNTO: Record<PuntoPrecio["resultado"], string> = {
+  sin_senal: "Sin señal",
+  propuesta: "Propuesta",
+  senal_registrada: "Señal (solo registro)",
+};
 
 // Alternativa en texto de la gráfica (AC-UX-7): se arma en el servidor con los mismos valores que la gráfica, para
 // teclado y lector de pantalla. Sin JavaScript propio.
@@ -234,7 +241,7 @@ export function AlternativaTexto({
                   <td className="py-1.5 pr-3 text-right">{usd(p.cierre)}</td>
                   <td className="py-1.5 pr-3 text-right">{usd(p.sma20)}</td>
                   <td className="py-1.5 pr-3 text-right">{usd(p.cierrePrevio)}</td>
-                  <td className="py-1.5">{p.resultado === "propuesta" ? "Propuesta" : "Sin señal"}</td>
+                  <td className="py-1.5">{RESULTADO_PUNTO[p.resultado]}</td>
                 </tr>
               ))}
             </tbody>

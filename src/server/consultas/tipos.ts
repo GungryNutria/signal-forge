@@ -349,7 +349,7 @@ export type PuntoPrecio = {
   cierre: string; // foto.regla.resultado.close_ultimo
   sma20: string; // foto.regla.resultado.sma20
   cierrePrevio: string; // foto.regla.resultado.close_previo
-  resultado: "sin_senal" | "propuesta";
+  resultado: "sin_senal" | "propuesta" | "senal_registrada";
   /** true si el punto anterior de la lista no está exactamente 30 min antes (REQ-4). */
   hueco: boolean;
 };

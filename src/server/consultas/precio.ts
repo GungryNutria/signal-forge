@@ -15,7 +15,7 @@ function desdeDe(rango: Rango, ahora: Date): Date | null {
 
 /** Evaluaciones del activo que traen datos de la regla (REQ-1). La foto solo se lee por rutas explícitas. */
 const conDatos = (activo: Activo) => sql`ev.activo = ${activo}
-  AND ev.resultado IN ('sin_senal', 'propuesta')
+  AND ev.resultado IN ('sin_senal', 'propuesta', 'senal_registrada')
   AND ev.foto->'regla'->>'version' IS NOT NULL`;
 const VELA = sql`(ev.foto->'mercado'->>'ts_ultima_barra')::timestamptz`;
 
